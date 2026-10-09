@@ -1,14 +1,14 @@
 <script setup>
-import { reactive, ref } from 'vue'
-import { useRouter, useRoute, RouterLink } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import {ref } from 'vue'
+// import { useRouter, useRoute, RouterLink } from 'vue-router'
+// import { useAuthStore } from '@/stores/auth'
  
-const auth = useAuthStore()
-const router = useRouter()
-const route = useRoute()
+// const auth = useAuthStore()
+// const router = useRouter()
+// const route = useRoute()
  
-const form = reactive({ email: '', password: '' })
-const errors = reactive({ email: '', password: '' })
+const form = ref({ email: '', password: '' })
+const errors = ref({ email: '', password: '' })
 const serverError = ref('')
 const loading = ref(false)
  
@@ -29,18 +29,19 @@ function validate() {
 async function handleSubmit() {
   serverError.value = ''
   if (!validate()) return
- 
-  loading.value = true
-  try {
-    await auth.login({ email: form.email.trim(), password: form.password })
-    // Go back to the page the user tried to open, otherwise the dashboard
-    router.push(route.query.redirect || '/dashboard')
-  } catch (err) {
-    serverError.value =
-      err.response?.data?.message || 'Could not log in. Check your details and try again.'
-  } finally {
-    loading.value = false
-  }
+  
+  return
+  // loading.value = true
+  // try {
+  //   await auth.login({ email: form.email.trim(), password: form.password })
+  //   // Go back to the page the user tried to open, otherwise the dashboard
+  //   router.push(route.query.redirect || '/dashboard')
+  // } catch (err) {
+  //   serverError.value =
+  //     err.response?.data?.message || 'Could not log in. Check your details and try again.'
+  // } finally {
+  //   loading.value = false
+  // }
 }
 </script>
  

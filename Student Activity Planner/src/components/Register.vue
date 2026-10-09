@@ -1,56 +1,60 @@
 <script setup>
-import { reactive, ref } from 'vue'
-import { useRouter, RouterLink } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import {ref } from 'vue'
+// import { useRouter, RouterLink } from 'vue-router'
+// import { useAuthStore } from '@/stores/auth'
  
-const auth = useAuthStore()
-const router = useRouter()
+// const auth = useAuthStore()
+// const router = useRouter()
  
-const form = reactive({ name: '', email: '', password: '', confirmPassword: '' })
-const errors = reactive({ name: '', email: '', password: '', confirmPassword: '' })
+const newName = ref('')
+const newEmail = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const nameError = ref('')
+const emailError = ref('')
+const passwordError = ref('')
+const confirmError = ref('')
 const serverError = ref('')
 const loading = ref(false)
  
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 8
  
-function validate() {
-  Object.keys(errors).forEach((key) => (errors[key] = ''))
+function validate() { 
+  if (!newName.value.trim()) nameError.value = 'Enter your name.'
  
-  if (!form.name.trim()) errors.name = 'Enter your name.'
+  if (!newEmail.value.trim()) emailError.value = 'Enter your email address.'
+  else if (!EMAIL_PATTERN.test(newEmail.value.trim())) emailError.value = 'Enter a valid email address.'
  
-  if (!form.email.trim()) errors.email = 'Enter your email address.'
-  else if (!EMAIL_PATTERN.test(form.email.trim())) errors.email = 'Enter a valid email address.'
+  if (newPassword.value == '') passwordError.value = 'Create a password.'
+  else if (newPassword.value.length < MIN_PASSWORD_LENGTH)
+    passwordError.value = `Use at least ${MIN_PASSWORD_LENGTH} characters.`
  
-  if (!form.password) errors.password = 'Create a password.'
-  else if (form.password.length < MIN_PASSWORD_LENGTH)
-    errors.password = `Use at least ${MIN_PASSWORD_LENGTH} characters.`
- 
-  if (!form.confirmPassword) errors.confirmPassword = 'Re-enter your password.'
-  else if (form.confirmPassword !== form.password)
-    errors.confirmPassword = 'Passwords do not match.'
- 
-  return Object.values(errors).every((message) => !message)
+  if (confirmPassword.value == '') confirmError.value = 'Re-enter your password.'
+  else if (confirmPassword.value !== newPassword.value)
+    confirmError.value = 'Passwords do not match.'
+
 }
  
 async function handleSubmit() {
   serverError.value = ''
   if (!validate()) return
  
-  loading.value = true
-  try {
-    await auth.register({
-      name: form.name.trim(),
-      email: form.email.trim(),
-      password: form.password,
-    })
-    router.push('/dashboard')
-  } catch (err) {
-    serverError.value =
-      err.response?.data?.message || 'Could not create your account. Please try again.'
-  } finally {
-    loading.value = false
-  }
+  // loading.value = true
+  // try {
+  //   await auth.register({
+  //     name: newName.trim(),
+  //     email: newEmail.trim(),
+  //     password: newPassword,
+  //   })
+  //   router.push('/dashboard')
+  // } catch (err) {
+  //   serverError.value =
+  //     err.response?.data?.message || 'Could not create your account. Please try again.'
+  // } finally {
+  //   loading.value = false
+  // }
+  return
 }
 </script>
  
@@ -69,61 +73,60 @@ async function handleSubmit() {
           <label for="name" class="form-label">Name</label>
           <input
             id="name"
-            v-model="form.name"
+            v-model="newName"
             type="text"
             class="form-control"
-            :class="{ 'is-invalid': errors.name }"
+            :class="{ 'is-invalid': nameError }"
             autocomplete="name"
-            :aria-invalid="!!errors.name"
+            :aria-invalid="!!nameError"
             aria-describedby="name-error"
           />
-          <div id="name-error" class="invalid-feedback">{{ errors.name }}</div>
+          <div id="name-error" class="invalid-feedback">{{ nameError }}</div>
         </div>
  
         <div class="mb-3">
           <label for="email" class="form-label">Email</label>
           <input
             id="email"
-            v-model="form.email"
+            v-model="newEmail"
             type="email"
             class="form-control"
-            :class="{ 'is-invalid': errors.email }"
+            :class="{ 'is-invalid': emailError }"
             autocomplete="email"
-            :aria-invalid="!!errors.email"
+            :aria-invalid="!!emailError"
             aria-describedby="email-error"
           />
-          <div id="email-error" class="invalid-feedback">{{ errors.email }}</div>
+          <div id="email-error" class="invalid-feedback">{{ emailError }}</div>
         </div>
  
         <div class="mb-3">
-          <label for="password" class="form-label">Password</label>
+          <label for="password" class="form-label">Password (At least 8 characters)</label>
           <input
             id="password"
-            v-model="form.password"
+            v-model="newPassword"
             type="password"
             class="form-control"
-            :class="{ 'is-invalid': errors.password }"
+            :class="{ 'is-invalid': passwordError }"
             autocomplete="new-password"
-            :aria-invalid="!!errors.password"
+            :aria-invalid="!!passwordError"
             aria-describedby="password-help password-error"
           />
-          <div id="password-help" class="form-text">At least 8 characters.</div>
-          <div id="password-error" class="invalid-feedback">{{ errors.password }}</div>
+          <div id="password-error" class="invalid-feedback">{{ passwordError }}</div>
         </div>
  
         <div class="mb-4">
           <label for="confirmPassword" class="form-label">Confirm password</label>
           <input
             id="confirmPassword"
-            v-model="form.confirmPassword"
+            v-model="confirmPassword"
             type="password"
             class="form-control"
-            :class="{ 'is-invalid': errors.confirmPassword }"
+            :class="{ 'is-invalid': confirmError }"
             autocomplete="new-password"
-            :aria-invalid="!!errors.confirmPassword"
+            :aria-invalid="!!confirmError"
             aria-describedby="confirm-error"
           />
-          <div id="confirm-error" class="invalid-feedback">{{ errors.confirmPassword }}</div>
+          <div id="confirm-error" class="invalid-feedback">{{ confirmError }}</div>
         </div>
  
         <button type="submit" class="btn btn-primary w-100" :disabled="loading">
@@ -167,5 +170,9 @@ async function handleSubmit() {
   .auth-card {
     padding: 1.5rem;
   }
+}
+
+.invalid-feedback {
+  color: red;
 }
 </style>
