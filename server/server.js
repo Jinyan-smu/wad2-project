@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
+const fs = require('fs/promises');
 const path = require('path');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
@@ -11,7 +11,10 @@ const SESSION_SECRET = "67676767676767PDIDDYSECRET"
 const USERS_FILE = path.join(__dirname, 'users.json')
 const app = express()
 
-app.use(cors())
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+}))
 app.use(express.json());
 
 app.use(session({
@@ -21,7 +24,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: true,
+    secure: false,
     sameSite: 'lax',
     maxAge: 1000 * 60 * 60 * 24
   }
@@ -61,16 +64,15 @@ function createSession(req, user) {
 
 
 
-async function writeUsers(users) {
-  const tmp = `${USERS_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
-    fs.renameSync(tmp, USERS_FILE);
+async function writeUsers(data) {
+  await fs.writeFile(USERS_FILE, JSON.stringify(data, null, 2))    
 }
 
 app.post('/api/register', async (req, res) => {
-  const { username, password } = req.body || {}
+  const { name, email, password } = req.body || {}
 
-  const cleanUsername = username.trim()
+  const cleanUsername = name.trim()
+  const cleanEmail = email.trim()
 
   const users = await readUsers()
 
@@ -78,9 +80,13 @@ app.post('/api/register', async (req, res) => {
     user => user.username === cleanUsername
   )
 
-  if (existingUser) {
+  const existingEmail = users.find(
+    user => user.email === cleanEmail
+  )
+
+  if (existingUser || existingEmail) {
     return res.status(409).json({
-      message: 'Username is already taken'
+      message: 'Username or email is already taken'
     })
   }
 
@@ -89,6 +95,7 @@ app.post('/api/register', async (req, res) => {
   const newUser = {
     id: crypto.randomUUID(),
     username: cleanUsername,
+    email: cleanEmail,
     passwordHash: passwordHash,
     createdAt: new Date().toISOString()
   }
@@ -107,12 +114,12 @@ app.post('/api/register', async (req, res) => {
 })
 
 app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body || {}
+  const { email, password } = req.body || {}
 
   const users = await readUsers()
 
   const user = users.find(
-    item => item.username === username.trim()
+    item => item.email === email.trim()
   )
 
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
@@ -122,6 +129,7 @@ app.post('/api/login', async (req, res) => {
   }
 
   await createSession(req, user)
+
 
   res.json({
     message: 'Login successful',
@@ -138,7 +146,7 @@ app.post('/api/logout', (req, res, next) => {
 
     res.clearCookie('app.sid', {
       httpOnly: true,
-      secure: true,
+      secure: false,
       sameSite: 'lax',
       path: '/'
     })

@@ -2,8 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Register from '@/components/Register.vue'
 import Login from '@/components/Login.vue'
 import Dashboard from '@/components/Dashboard.vue'
-
-
+import axios from 'axios'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -14,22 +13,27 @@ const router = createRouter({
     },
     {
       path: '/login',
+      name: 'Login',
       component: Login
     },
     {
       path: '/register',
+      name: 'Register',
       component: Register
     }, 
     {
       path: '/dashboard',
+      name: 'Dashboard',
       component: Dashboard,
-      // meta: {requiresAuth: true}
+      meta: {requiresAuth: true}
     }
 
   ],
 })
 
 router.beforeEach(async (to) => {
+  console.log('Navigating to:', to.fullPath)
+  console.log('Requires authentication:', to.meta.requiresAuth)
   if (!to.meta.requiresAuth) {
     return true
   }
@@ -40,8 +44,14 @@ router.beforeEach(async (to) => {
     })
 
     return true
-  } catch {
-    return { name: 'Login' }
+  } catch (error){
+    return {
+      name: 'Login',
+      query: {
+        required: 'true',
+        redirect: to.fullPath
+      }
+    }
   }
 })
 

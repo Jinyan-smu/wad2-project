@@ -1,11 +1,11 @@
 <script setup>
-import {ref } from 'vue'
-// import { useRouter, RouterLink } from 'vue-router'
-// import { useAuthStore } from '@/stores/auth'
- 
-// const auth = useAuthStore()
-// const router = useRouter()
- 
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import axios from 'axios'
+
+
+const router = useRouter()
+
 const newName = ref('')
 const newEmail = ref('')
 const newPassword = ref('')
@@ -16,48 +16,76 @@ const passwordError = ref('')
 const confirmError = ref('')
 const serverError = ref('')
 const loading = ref(false)
- 
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 8
- 
-function validate() { 
-  if (!newName.value.trim()) nameError.value = 'Enter your name.'
- 
-  if (!newEmail.value.trim()) emailError.value = 'Enter your email address.'
-  else if (!EMAIL_PATTERN.test(newEmail.value.trim())) emailError.value = 'Enter a valid email address.'
- 
-  if (newPassword.value == '') passwordError.value = 'Create a password.'
-  else if (newPassword.value.length < MIN_PASSWORD_LENGTH)
-    passwordError.value = `Use at least ${MIN_PASSWORD_LENGTH} characters.`
- 
-  if (confirmPassword.value == '') confirmError.value = 'Re-enter your password.'
-  else if (confirmPassword.value !== newPassword.value)
-    confirmError.value = 'Passwords do not match.'
 
+function validate() {
+  let isValid = true
+  if (!newName.value.trim()) {
+    nameError.value = 'Enter your name.'
+    isValid = false
+  }
+
+  if (!newEmail.value.trim()) {
+    emailError.value = 'Enter your email address.'
+    isValid = false
+  }
+  else if (!EMAIL_PATTERN.test(newEmail.value.trim())) {
+    emailError.value = 'Enter a valid email address.'
+    isValid = false
+  }
+
+  if (newPassword.value == '') {
+    passwordError.value = 'Create a password.'
+    isValid = false
+  }
+  else if (newPassword.value.length < MIN_PASSWORD_LENGTH) {
+    passwordError.value = `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+    isValid = false
+  }
+
+  if (confirmPassword.value == '') {
+    confirmError.value = 'Re-enter your password.'
+    isValid = false
+  }
+  else if (confirmPassword.value !== newPassword.value) {
+    confirmError.value = 'Passwords do not match.'
+    isValid = false
+  }
+
+
+  return isValid
 }
- 
+
 async function handleSubmit() {
   serverError.value = ''
+
   if (!validate()) return
- 
-  // loading.value = true
-  // try {
-  //   await auth.register({
-  //     name: newName.trim(),
-  //     email: newEmail.trim(),
-  //     password: newPassword,
-  //   })
-  //   router.push('/dashboard')
-  // } catch (err) {
-  //   serverError.value =
-  //     err.response?.data?.message || 'Could not create your account. Please try again.'
-  // } finally {
-  //   loading.value = false
-  // }
-  return
+
+  loading.value = true
+
+  try {
+    await axios.post('http://localhost:8000/api/register', {
+      name: newName.value.trim(),
+      email: newEmail.value.trim(),
+      password: newPassword.value
+    })
+
+    await router.push({
+      name: 'Login',
+      query: { registered: 'true' }
+    })
+  } catch (err) {
+    serverError.value =
+      err.response?.data?.message ||
+      'Could not create your account. Please try again.'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
- 
+
 <template>
   <main class="auth-page">
     <div class="auth-card">
@@ -72,85 +100,50 @@ async function handleSubmit() {
 
       <h1 class="auth-title">Create your account</h1>
       <p class="auth-subtitle">Plan assignments and activities in one place.</p>
- 
+
       <div v-if="serverError" class="alert alert-danger" role="alert">
         {{ serverError }}
       </div>
- 
+
       <form novalidate @submit.prevent="handleSubmit">
         <div class="auth-field">
           <label for="name" class="form-label auth-label">Name: </label>
-          <input
-            id="name"
-            v-model="newName"
-            type="text"
-            class="form-control"
-            :class="{ 'is-invalid': nameError }"
-            autocomplete="name"
-            :aria-invalid="!!nameError"
-            aria-describedby="name-error"
-          />
+          <input id="name" v-model="newName" type="text" class="form-control" :class="{ 'is-invalid': nameError }"
+            autocomplete="name" :aria-invalid="!!nameError" aria-describedby="name-error" />
           <div id="name-error" class="invalid-feedback">{{ nameError }}</div>
         </div>
- 
+
         <div class="auth-field">
           <label for="email" class="form-label auth-label">Email: </label>
-          <input
-            id="email"
-            v-model="newEmail"
-            type="email"
-            class="form-control"
-            :class="{ 'is-invalid': emailError }"
-            autocomplete="email"
-            :aria-invalid="!!emailError"
-            aria-describedby="email-error"
-          />
+          <input id="email" v-model="newEmail" type="email" class="form-control" :class="{ 'is-invalid': emailError }"
+            autocomplete="email" :aria-invalid="!!emailError" aria-describedby="email-error" />
           <div id="email-error" class="invalid-feedback">{{ emailError }}</div>
         </div>
 
         <div class="auth-pair">
           <div class="auth-field">
             <label for="password" class="form-label auth-label">Password: </label>
-            <input
-              id="password"
-              v-model="newPassword"
-              type="password"
-              class="form-control"
-              :class="{ 'is-invalid': passwordError }"
-              autocomplete="new-password"
-              :aria-invalid="!!passwordError"
-              aria-describedby="password-help password-error"
-              placeholder="At least 8 characters."
-            />
+            <input id="password" v-model="newPassword" type="password" class="form-control"
+              :class="{ 'is-invalid': passwordError }" autocomplete="new-password" :aria-invalid="!!passwordError"
+              aria-describedby="password-help password-error" placeholder="At least 8 characters." />
             <div id="password-error" class="invalid-feedback">{{ passwordError }}</div>
           </div>
- 
+
           <div class="auth-field">
             <label for="confirmPassword" class="form-label auth-label">Confirm password: </label>
-            <input
-              id="confirmPassword"
-              v-model="confirmPassword"
-              type="password"
-              class="form-control"
-              :class="{ 'is-invalid': confirmError }"
-              autocomplete="new-password"
-              :aria-invalid="!!confirmError"
-              aria-describedby="confirm-error"
-            />
+            <input id="confirmPassword" v-model="confirmPassword" type="password" class="form-control"
+              :class="{ 'is-invalid': confirmError }" autocomplete="new-password" :aria-invalid="!!confirmError"
+              aria-describedby="confirm-error" />
             <div id="confirm-error" class="invalid-feedback">{{ confirmError }}</div>
           </div>
         </div>
 
         <button type="submit" class="btn btn-lg auth-btn" :disabled="loading">
-          <span
-            v-if="loading"
-            class="spinner-border spinner-border-sm me-2"
-            aria-hidden="true"
-          ></span>
+          <span v-if="loading" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
           {{ loading ? 'Creating account…' : 'Create account' }}
         </button>
       </form>
- 
+
       <p class="auth-footer">
         Already have an account?
         <RouterLink to="/login" class="auth-link">Log in</RouterLink>
@@ -158,7 +151,7 @@ async function handleSubmit() {
     </div>
   </main>
 </template>
- 
+
 <style scoped>
 .auth-page {
   min-height: 100vh;
@@ -178,7 +171,7 @@ async function handleSubmit() {
   background-size: 260px auto, 190px auto, 340px auto, 210px auto, 100% 100%;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
- 
+
 .auth-card {
   width: 100%;
   max-width: 580px;
@@ -200,6 +193,7 @@ async function handleSubmit() {
   gap: 0.6rem;
   margin-bottom: 2rem;
 }
+
 .auth-brand-name {
   font-weight: 700;
   font-size: 1.05rem;
@@ -212,6 +206,7 @@ async function handleSubmit() {
   color: #1f2150;
   margin: 0 0 0.4rem;
 }
+
 .auth-subtitle {
   color: #6b7090;
   margin: 0 0 2.25rem;
@@ -220,11 +215,13 @@ async function handleSubmit() {
 .auth-field {
   margin-bottom: 1.75rem;
 }
+
 .auth-pair {
   display: grid;
   grid-template-columns: 1fr 1fr;
   column-gap: 1.75rem;
 }
+
 @media (max-width: 575px) {
   .auth-pair {
     grid-template-columns: 1fr;
@@ -253,13 +250,16 @@ async function handleSubmit() {
   outline: none;
   transition: border-color 0.2s ease;
 }
+
 .auth-card .form-control::placeholder {
   color: #aab0c4;
 }
+
 .auth-card .form-control:focus {
   border-bottom-color: #4b4f8f;
   box-shadow: none;
 }
+
 .auth-card .form-control.is-invalid {
   border-bottom-color: #dc3545;
   background-image: none;
@@ -285,11 +285,13 @@ async function handleSubmit() {
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+
 .auth-card .auth-btn:hover:not(:disabled) {
   color: #fff;
   transform: translateY(-2px);
   box-shadow: 0 16px 28px rgba(47, 52, 104, 0.4);
 }
+
 .auth-card .auth-btn:disabled {
   color: #fff;
   opacity: 0.7;
@@ -300,13 +302,14 @@ async function handleSubmit() {
   text-align: center;
   color: #6b7090;
 }
+
 .auth-link {
   color: #2f3468;
   font-weight: 600;
   text-decoration: none;
 }
+
 .auth-link:hover {
   text-decoration: underline;
 }
 </style>
-

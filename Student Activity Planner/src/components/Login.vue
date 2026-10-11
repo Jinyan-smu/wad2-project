@@ -1,50 +1,69 @@
 <script setup>
-import {ref } from 'vue'
-// import { useRouter, useRoute, RouterLink } from 'vue-router'
-// import { useAuthStore } from '@/stores/auth'
- 
-// const auth = useAuthStore()
-// const router = useRouter()
-// const route = useRoute()
- 
-const form = ref({ email: '', password: '' })
-const errors = ref({ email: '', password: '' })
+import { ref } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import axios from 'axios'
+
+const router = useRouter()
+const route = useRoute()
+
+const formEmail = ref('')
+const formPassword = ref('')
+const emailError = ref('')
+const passwordError = ref('')
 const serverError = ref('')
 const loading = ref(false)
- 
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
- 
+
 function validate() {
-  errors.email = ''
-  errors.password = ''
- 
-  if (!form.email.trim()) errors.email = 'Enter your email address.'
-  else if (!EMAIL_PATTERN.test(form.email.trim())) errors.email = 'Enter a valid email address.'
- 
-  if (!form.password) errors.password = 'Enter your password.'
- 
-  return !errors.email && !errors.password
+  emailError.value = ''
+  passwordError.value = ''
+  let isValid = true
+
+  if (!formEmail.value.trim()) {
+    emailError.value = 'Enter your email address.'
+    isValid = false
+  } else if (!EMAIL_PATTERN.test(formEmail.value.trim())) {
+    emailError.value = 'Enter a valid email address.'
+    isValid = false
+  }
+
+  if (!formPassword.value) {
+    passwordError.value = 'Enter your password.'
+    isValid = false
+  }
+
+  return isValid
 }
- 
+
 async function handleSubmit() {
   serverError.value = ''
   if (!validate()) return
-  
-  return
-  // loading.value = true
-  // try {
-  //   await auth.login({ email: form.email.trim(), password: form.password })
-  //   // Go back to the page the user tried to open, otherwise the dashboard
-  //   router.push(route.query.redirect || '/dashboard')
-  // } catch (err) {
-  //   serverError.value =
-  //     err.response?.data?.message || 'Could not log in. Check your details and try again.'
-  // } finally {
-  //   loading.value = false
-  // }
+
+  loading.value = true
+
+  try {
+    await axios.post(
+      'http://localhost:8000/api/login',
+      {
+        email: formEmail.value.trim(),
+        password: formPassword.value
+      },
+      {
+        withCredentials: true
+      }
+    )
+    await router.push('/dashboard')
+  } catch (err) {
+    serverError.value =
+      err ||
+      'Could not log in. Check your details and try again.'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
- 
+
 <template>
   <main class="auth-page">
     <div class="auth-card">
@@ -59,52 +78,41 @@ async function handleSubmit() {
 
       <h1 class="auth-title">Log in</h1>
       <p class="auth-subtitle">Access your assignments and activities.</p>
- 
+
+      <div v-if="route.query.required === 'true'" class="alert alert-warning" role="alert">
+        Please log in to access this page.
+      </div>
+
+      <div v-if="route.query.registered === 'true'" class="alert alert-success" role="status">
+        Registration successful! Please log in.
+      </div>
+
       <div v-if="serverError" class="alert alert-danger" role="alert">
         {{ serverError }}
       </div>
- 
+
       <form novalidate @submit.prevent="handleSubmit">
         <div class="auth-field">
           <label for="email" class="form-label auth-label">Email: </label>
-          <input
-            id="email"
-            v-model="form.email"
-            type="email"
-            class="form-control"
-            :class="{ 'is-invalid': errors.email }"
-            autocomplete="email"
-            :aria-invalid="!!errors.email"
-            aria-describedby="email-error"
-          />
-          <div id="email-error" class="invalid-feedback">{{ errors.email }}</div>
+          <input id="email" v-model="formEmail" type="email" class="form-control" :class="{ 'is-invalid': emailError }"
+            autocomplete="email" :aria-invalid="!!emailError" aria-describedby="email-error" />
+          <div id="email-error" class="invalid-feedback">{{ emailError }}</div>
         </div>
- 
+
         <div class="auth-field">
           <label for="password" class="form-label auth-label">Password: </label>
-          <input
-            id="password"
-            v-model="form.password"
-            type="password"
-            class="form-control"
-            :class="{ 'is-invalid': errors.password }"
-            autocomplete="current-password"
-            :aria-invalid="!!errors.password"
-            aria-describedby="password-error"
-          />
-          <div id="password-error" class="invalid-feedback">{{ errors.password }}</div>
+          <input id="password" v-model="formPassword" type="password" class="form-control"
+            :class="{ 'is-invalid': passwordError }" autocomplete="current-password" :aria-invalid="!!passwordError"
+            aria-describedby="password-error" />
+          <div id="password-error" class="invalid-feedback">{{ passwordError }}</div>
         </div>
- 
+
         <button type="submit" class="btn btn-lg auth-btn" :disabled="loading">
-          <span
-            v-if="loading"
-            class="spinner-border spinner-border-sm me-2"
-            aria-hidden="true"
-          ></span>
+          <span v-if="loading" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
           {{ loading ? 'Logging in…' : 'Log in' }}
         </button>
       </form>
- 
+
       <p class="auth-footer">
         New here?
         <RouterLink to="/register" class="auth-link">Create an account</RouterLink>
@@ -112,7 +120,7 @@ async function handleSubmit() {
     </div>
   </main>
 </template>
- 
+
 <style scoped>
 .auth-page {
   min-height: 100vh;
@@ -132,7 +140,7 @@ async function handleSubmit() {
   background-size: 260px auto, 190px auto, 340px auto, 210px auto, 100% 100%;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
- 
+
 .auth-card {
   width: 100%;
   max-width: 580px;
@@ -154,6 +162,7 @@ async function handleSubmit() {
   gap: 0.6rem;
   margin-bottom: 2rem;
 }
+
 .auth-brand-name {
   font-weight: 700;
   font-size: 1.05rem;
@@ -166,6 +175,7 @@ async function handleSubmit() {
   color: #1f2150;
   margin: 0 0 0.4rem;
 }
+
 .auth-subtitle {
   color: #6b7090;
   margin: 0 0 2.25rem;
@@ -174,6 +184,7 @@ async function handleSubmit() {
 .auth-field {
   margin-bottom: 1.75rem;
 }
+
 .auth-label {
   display: block;
   font-size: 0.85rem;
@@ -196,13 +207,16 @@ async function handleSubmit() {
   outline: none;
   transition: border-color 0.2s ease;
 }
+
 .auth-card .form-control::placeholder {
   color: #aab0c4;
 }
+
 .auth-card .form-control:focus {
   border-bottom-color: #4b4f8f;
   box-shadow: none;
 }
+
 .auth-card .form-control.is-invalid {
   border-bottom-color: #dc3545;
   background-image: none;
@@ -228,11 +242,13 @@ async function handleSubmit() {
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+
 .auth-card .auth-btn:hover:not(:disabled) {
   color: #fff;
   transform: translateY(-2px);
   box-shadow: 0 16px 28px rgba(47, 52, 104, 0.4);
 }
+
 .auth-card .auth-btn:disabled {
   color: #fff;
   opacity: 0.7;
@@ -243,11 +259,13 @@ async function handleSubmit() {
   text-align: center;
   color: #6b7090;
 }
+
 .auth-link {
   color: #2f3468;
   font-weight: 600;
   text-decoration: none;
 }
+
 .auth-link:hover {
   text-decoration: underline;
 }

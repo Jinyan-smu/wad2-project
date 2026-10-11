@@ -1,0 +1,16 @@
+[
+  {
+    "id": "e2979a12-acaa-43b3-a100-dedc367f482f",
+    "username": "Jinyan Zhang",
+    "email": "zjy050711@outlook.com",
+    "passwordHash": "$2b$10$K4hk3/EB2yHkQvU46ampmeBxOGSFYPrZ4E8yCg3D/kmkOEBCzYcjO",
+    "createdAt": "2026-10-11T07:32:33.200Z"
+  },
+  {
+    "id": "21eb6a65-ffd0-45fd-ab59-58e742ba04a0",
+    "username": "Jinyan Zhang2",
+    "email": "zjy050711@gmail.com",
+    "passwordHash": "$2b$10$hVThWi9dnENE.kQs2JjuUekeCjQt2gkKs4imbPlC34wXzUCaiFnJ2",
+    "createdAt": "2026-10-11T08:13:35.088Z"
+  }
+]
