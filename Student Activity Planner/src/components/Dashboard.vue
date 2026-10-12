@@ -140,7 +140,18 @@
 import { ref, computed, onMounted } from 'vue'
 
 /* ---------- Sample data (replace with calls to your Express/MongoDB API) ---------- */
-const userName = ref('Rithik')
+const userName = ref(null)
+const fetchUserData = async () => {
+  try {
+    const response = await fetch('http://localhost:8000/api/me', {
+      credentials: 'include' 
+    })
+    const data = await response.json()
+    userName.value = data.user.username
+  } catch (err) {
+    console.error('Failed to fetch session user:', err)
+  }
+}
 const at = (days, hour, min = 0) => {
   const d = new Date()
   d.setDate(d.getDate() + days)
@@ -244,6 +255,7 @@ const weatherError = ref(false)
 const icon = code => (code === 0 ? '☀️' : code <= 3 ? '⛅' : code <= 48 ? '🌫️' : code <= 67 ? '🌧️' : code <= 82 ? '🌦️' : '⛈️')
 
 onMounted(async () => {
+  fetchUserData();
   try {
     const geo = await (await fetch('https://geocoding-api.open-meteo.com/v1/search?name=Singapore&count=1')).json()
     const { latitude, longitude } = geo.results[0]

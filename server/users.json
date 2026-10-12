@@ -12,5 +12,19 @@
     "email": "zjy050711@gmail.com",
     "passwordHash": "$2b$10$hVThWi9dnENE.kQs2JjuUekeCjQt2gkKs4imbPlC34wXzUCaiFnJ2",
     "createdAt": "2026-10-11T08:13:35.088Z"
+  },
+  {
+    "id": "df51a212-1233-4bf8-b4ba-420a7724ead4",
+    "username": "Rithik",
+    "email": "rithik.p.2025@smu.edu.sg",
+    "passwordHash": "$2b$10$ill3nLTZXVpp9O0czqHKBO/LdwUXxAxYdrvnWAGnAvx2nLk5hTNL.",
+    "createdAt": "2026-10-12T13:08:25.147Z"
+  },
+  {
+    "id": "cec2603c-9891-4dd7-84d2-2288a609c071",
+    "username": "Test",
+    "email": "test@gmail.com",
+    "passwordHash": "$2b$10$kO88BuDBnhbg3dUTwRfeCewpyo0WrbwN0/JAJ9lPwzWvbS.DTYUs6",
+    "createdAt": "2026-10-12T13:33:18.529Z"
   }
 ]
