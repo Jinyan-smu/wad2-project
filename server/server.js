@@ -146,6 +146,93 @@ app.get('/api/planner-data', requireLogin, async (req, res, next) => {
   }
 })
 
+app.get('/api/activities', requireLogin, async (req, res, next) => {
+  try {
+    const activities = await readJsonFile(ACTIVITIES_FILE)
+    res.json(Array.isArray(activities) ? activities : [])
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/activities', requireLogin, async (req, res, next) => {
+  try {
+    const { title, when, end, outdoor, notes = '', place = '', lat = null, lng = null } = req.body || {}
+    const startDate = new Date(when)
+    const endDate = new Date(end)
+
+    if (typeof title !== 'string' || !title.trim() || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+      return res.status(400).json({ message: 'Enter an activity name and a valid start and end time.' })
+    }
+
+    const activities = await readJsonFile(ACTIVITIES_FILE)
+    const activity = {
+      id: crypto.randomUUID(),
+      title: title.trim(),
+      place: typeof place === 'string' ? place.trim() : '',
+      outdoor: Boolean(outdoor),
+      when: startDate.toISOString(),
+      end: endDate.toISOString(),
+      done: false,
+      notes: typeof notes === 'string' ? notes.trim() : '',
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null
+    }
+
+    activities.push(activity)
+    await writeJsonFile(ACTIVITIES_FILE, activities)
+    res.status(201).json(activity)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/activities/:id', requireLogin, async (req, res, next) => {
+  try {
+    const activities = await readJsonFile(ACTIVITIES_FILE)
+    const activity = activities.find(item => String(item.id) === req.params.id)
+
+    if (!activity) {
+      return res.status(404).json({ message: 'Activity not found.' })
+    }
+
+    const allowedFields = ['title', 'place', 'outdoor', 'when', 'end', 'done', 'notes', 'lat', 'lng']
+    for (const field of allowedFields) {
+      if (Object.hasOwn(req.body || {}, field)) activity[field] = req.body[field]
+    }
+
+    const startDate = new Date(activity.when)
+    const endDate = new Date(activity.end)
+    if (typeof activity.title !== 'string' || !activity.title.trim() || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+      return res.status(400).json({ message: 'Enter an activity name and a valid start and end time.' })
+    }
+
+    activity.title = activity.title.trim()
+    activity.when = startDate.toISOString()
+    activity.end = endDate.toISOString()
+    await writeJsonFile(ACTIVITIES_FILE, activities)
+    res.json(activity)
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.delete('/api/activities/:id', requireLogin, async (req, res, next) => {
+  try {
+    const activities = await readJsonFile(ACTIVITIES_FILE)
+    const remainingActivities = activities.filter(item => String(item.id) !== req.params.id)
+
+    if (remainingActivities.length === activities.length) {
+      return res.status(404).json({ message: 'Activity not found.' })
+    }
+
+    await writeJsonFile(ACTIVITIES_FILE, remainingActivities)
+    res.status(204).end()
+  } catch (error) {
+    next(error)
+  }
+})
+
 app.post('/api/assignments', requireLogin, async (req, res, next) => {
   try {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''

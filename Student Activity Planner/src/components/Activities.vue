@@ -6,7 +6,7 @@
 
   const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast'
   const GEOCODE_URL = 'https://nominatim.openstreetmap.org/search'
-  const STORAGE_KEY = 'student-planner-activities'
+  const API_URL = 'http://localhost:8000/api'
 
 
   const LNG_WEST = 103.58
@@ -101,40 +101,44 @@
   const mapView = ref({ cx: MAP_W / 2, cy: MAP_H / 2, zoom: 1 })
 
 
-  function readStore() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
-      return Array.isArray(saved) ? saved : []
-    } catch {
-      return []
-    }
-  }
-
-  function writeStore(list) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
-    } catch {
-      throw new Error('Could not save to this browser. Check your storage settings.')
-    }
-  }
-
   async function fetchActivities() {
-    return readStore()
+    const response = await fetch(`${API_URL}/activities`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.message || 'Could not load activities.')
+    return Array.isArray(data) ? data : []
   }
 
   async function createActivity(payload) {
-    const record = { ...payload, id: crypto.randomUUID?.() ?? String(Date.now()), done: false }
-    writeStore([...readStore(), record])
-    return record
+    const response = await fetch(`${API_URL}/activities`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.message || 'Could not save the activity.')
+    return data
   }
 
   async function updateActivity(id, changes) {
-    const list = readStore().map((item) => (item.id === id ? { ...item, ...changes } : item))
-    writeStore(list)
+    const response = await fetch(`${API_URL}/activities/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    })
+    const data = response.status === 204 ? null : await response.json()
+    if (!response.ok) throw new Error(data?.message || 'Could not update the activity.')
+    return data
   }
 
   async function deleteActivityRecord(id) {
-    writeStore(readStore().filter((item) => item.id !== id))
+    const response = await fetch(`${API_URL}/activities/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    const data = response.status === 204 ? null : await response.json()
+    if (!response.ok) throw new Error(data?.message || 'Could not delete the activity.')
   }
 
   /* ---------- Date helpers ---------- */
