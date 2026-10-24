@@ -3,6 +3,7 @@ import Register from '@/components/Register.vue'
 import Login from '@/components/Login.vue'
 import Dashboard from '@/components/Dashboard.vue'
 import Assignments from '@/components/Assignments.vue'
+import Activities from '@/components/Activities.vue'
 import axios from 'axios'
 
 const router = createRouter({
