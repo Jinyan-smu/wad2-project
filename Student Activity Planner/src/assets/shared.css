@@ -22,7 +22,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-
   background: linear-gradient(170deg, #3b3bd8, #8b5cf6);
 }
 .app .sidebar h2 { font-size: 1.2rem; margin: 0 0 28px 8px; }
-.app .sidebar a { display: block; padding: 12px 14px; margin-bottom: 6px; border-radius: 12px; cursor: pointer; opacity: .85; }
+.app .sidebar a { display: block; padding: 12px 14px; margin-bottom: 6px; border-radius: 12px; cursor: pointer; opacity: .85; text-decoration: none; color: #ffff;}
 .app .sidebar a:hover { background: rgba(255, 255, 255, .15); }
 .app .sidebar a.active { background: #fff; color: var(--brand); font-weight: 700; opacity: 1; }
 .app .main { flex: 1; padding: 28px 32px; min-width: 0; }

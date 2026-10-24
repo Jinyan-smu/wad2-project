@@ -224,6 +224,8 @@
 			<RouterLink to="/dashboard">📊 Dashboard</RouterLink>
 			<RouterLink to="/assignments" class="active">📝 Assignments</RouterLink>
 			<RouterLink to="/activities">📅 Activities</RouterLink>
+			<a>🌤️ Weather</a>
+      		<a>👥 Group Meetings</a>
 		</aside>
 
 		<main class="main assignments-page">
@@ -495,10 +497,7 @@
 .assignments-app {
 	background: var(--bg);
 }
-.assignments-sidebar a {
-	color: rgba(255, 255, 255, 0.9);
-	text-decoration: none;
-}
+
 .assignments-page {
 	max-width: 1600px;
 	margin: 0 auto;

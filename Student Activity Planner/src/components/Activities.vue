@@ -1001,10 +1001,7 @@
 .activities-app {
 	background: var(--bg);
 }
-.activities-sidebar a {
-	color: rgba(255, 255, 255, 0.9);
-	text-decoration: none;
-}
+
 .activities-sidebar a.active {
 	color: var(--brand);
 }
