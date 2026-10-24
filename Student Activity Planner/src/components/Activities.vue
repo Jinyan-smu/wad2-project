@@ -762,35 +762,29 @@
 		
 				<section class="row g-3 mb-4" aria-label="Activities summary">
 					<div class="col-12 col-sm-6 col-lg-4">
-						<div class="card stat h-100">
-							<div class="card-body">
-								<span class="emoji">📅</span>
-								<div>
-									<b>{{ totalCount }}</b>
-									<small>Total activities</small>
-								</div>
+						<div class="overview-card h-100">
+							<span class="overview-icon calendar-icon">📅</span>
+							<div>
+								<strong>{{ totalCount }}</strong>
+								<span>Total activities</span>
 							</div>
 						</div>
 					</div>
 					<div class="col-12 col-sm-6 col-lg-4">
-						<div class="card stat h-100">
-							<div class="card-body">
-								<span class="emoji">⏳</span>
-								<div>
-									<b>{{ upcomingCount }}</b>
-									<small>Coming up</small>
-								</div>
+						<div class="overview-card h-100">
+							<span class="overview-icon assignment-icon">⏳</span>
+							<div>
+								<strong>{{ upcomingCount }}</strong>
+								<span>Coming up</span>
 							</div>
 						</div>
 					</div>
 					<div class="col-12 col-sm-6 col-lg-4">
-						<div class="card stat h-100">
-							<div class="card-body">
-								<span class="emoji">🌤️</span>
-								<div>
-									<b>{{ outdoorCount }}</b>
-									<small>Outdoor</small>
-								</div>
+						<div class="overview-card h-100">
+							<span class="overview-icon activity-icon">🌤️</span>
+							<div>
+								<strong>{{ outdoorCount }}</strong>
+								<span>Outdoor</span>
 							</div>
 						</div>
 					</div>

@@ -223,7 +223,7 @@
 			<h2>🎓 Student Planner</h2>
 			<RouterLink to="/dashboard">📊 Dashboard</RouterLink>
 			<RouterLink to="/assignments" class="active">📝 Assignments</RouterLink>
-			<a class="disabled-link" aria-disabled="true">📅 Activities</a>
+			<RouterLink to="/activities">📅 Activities</RouterLink>
 		</aside>
 
 		<main class="main assignments-page">
@@ -499,10 +499,6 @@
 	color: rgba(255, 255, 255, 0.9);
 	text-decoration: none;
 }
-.assignments-sidebar .disabled-link {
-	cursor: default;
-	opacity: 0.6;
-}
 .assignments-page {
 	max-width: 1600px;
 	margin: 0 auto;
@@ -553,46 +549,6 @@
 }
 .form-actions {
 	padding-top: 0.25rem;
-}
-.overview-card {
-	display: flex;
-	align-items: center;
-	gap: 0.85rem;
-	padding: 1rem 1.15rem;
-	border: 1px solid #e9ebf4;
-	border-radius: 1rem;
-	background: #fff;
-	box-shadow: 0 0.3rem 1rem rgba(33, 42, 92, 0.04);
-}
-.overview-icon {
-	display: grid;
-	width: 2.7rem;
-	height: 2.7rem;
-	flex: 0 0 auto;
-	place-items: center;
-	border-radius: 0.85rem;
-	font-size: 1.2rem;
-}
-.assignment-icon {
-	background: #ececff;
-}
-.quiz-icon {
-	background: #e8f4ff;
-}
-.calendar-icon {
-	background: #e5f8f0;
-}
-.overview-card strong,
-.overview-card span:last-child {
-	display: block;
-}
-.overview-card strong {
-	font-size: 1.25rem;
-	line-height: 1.15;
-}
-.overview-card div span {
-	color: #777f97;
-	font-size: 0.8rem;
 }
 .planner-card > .card-body {
 	padding: 1.15rem 1.25rem 1.35rem;

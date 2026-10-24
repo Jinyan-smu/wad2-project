@@ -34,6 +34,12 @@ const router = createRouter({
       name: 'Assignments',
       component: Assignments,
       meta: {requiresAuth: true}
+    },
+    {
+      path: '/activities',
+      name: 'Activities',
+      component: Activities,
+      meta: {requiresAuth: true}
     }
 
   ],

@@ -30,13 +30,11 @@
       <!-- Stats -->
       <section class="row g-3 mb-4" aria-label="Planner summary">
         <div class="col-12 col-sm-6 col-lg-3" v-for="s in stats" :key="s.label">
-          <div class="card stat h-100">
-            <div class="card-body">
-              <span class="emoji">{{ s.icon }}</span>
-              <div>
-                <b>{{ s.value }}</b>
-                <small>{{ s.label }}</small>
-              </div>
+          <div class="overview-card h-100">
+            <span class="overview-icon" :class="s.iconClass">{{ s.icon }}</span>
+            <div>
+              <strong>{{ s.value }}</strong>
+              <span>{{ s.label }}</span>
             </div>
           </div>
         </div>
@@ -245,10 +243,10 @@ const doneCount = computed(() => assignments.value.length - pending.value.length
 const progress = computed(() => Math.round((doneCount.value / assignments.value.length) * 100) || 0)
 
 const stats = computed(() => [
-  { icon: '📝', label: 'Pending assignments', value: pending.value.length },
-  { icon: '⏰', label: 'Due within 3 days', value: pending.value.filter(a => a.when && a.when >= now && a.when - now < 3 * 86400000).length },
-  { icon: '✏️', label: 'Upcoming quizzes', value: quizzes.value.filter(quiz => !quiz.done && quiz.when && quiz.when >= now).length },
-  { icon: '✅', label: 'Completed', value: doneCount.value },
+  { icon: '📝', iconClass: 'assignment-icon', label: 'Pending assignments', value: pending.value.length },
+  { icon: '⏰', iconClass: 'calendar-icon', label: 'Due within 3 days', value: pending.value.filter(a => a.when && a.when >= now && a.when - now < 3 * 86400000).length },
+  { icon: '✏️', iconClass: 'quiz-icon', label: 'Upcoming quizzes', value: quizzes.value.filter(quiz => !quiz.done && quiz.when && quiz.when >= now).length },
+  { icon: '✅', iconClass: 'activity-icon', label: 'Completed', value: doneCount.value },
 ])
 
 /* ---------- Timeline (assignments, quizzes, and future user activities) ---------- */

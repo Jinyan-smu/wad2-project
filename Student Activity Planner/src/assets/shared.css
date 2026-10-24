@@ -49,11 +49,16 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-
 .app .card h4 { margin: 18px 0 8px; font-size: .8rem; color: var(--muted); text-transform: uppercase; }
 .app .section-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 
-.app .stat { margin: 0; }
-.app .stat .card-body { display: flex; align-items: center; gap: 14px; }
-.app .stat .emoji { font-size: 1.6rem; background: #ececff; width: 50px; height: 50px; display: grid; place-items: center; border-radius: 14px; }
-.app .stat b { font-size: 1.7rem; display: block; line-height: 1; }
-.app .stat small, .app .info small, .app .outdoor small { color: var(--muted); display: block; margin-top: 3px; }
+.app .overview-card { display: flex; align-items: center; gap: .85rem; padding: 1rem 1.15rem; border: 1px solid #e9ebf4; border-radius: 1rem; background: #fff; box-shadow: 0 .3rem 1rem rgba(33, 42, 92, .04); }
+.app .overview-icon { display: grid; width: 2.7rem; height: 2.7rem; flex: 0 0 auto; place-items: center; border-radius: .85rem; font-size: 1.2rem; }
+.app .overview-icon.assignment-icon { background: #ececff; }
+.app .overview-icon.quiz-icon { background: #e8f4ff; }
+.app .overview-icon.calendar-icon { background: #e5f8f0; }
+.app .overview-icon.activity-icon { background: #e5f8f0; }
+.app .overview-card strong, .app .overview-card span { display: block; }
+.app .overview-card strong { font-size: 1.25rem; line-height: 1.15; }
+.app .overview-card div span { color: #777f97; font-size: .8rem; }
+.app .info small, .app .outdoor small { color: var(--muted); display: block; margin-top: 3px; }
 
 .app .content-column { min-width: 0; }
 
