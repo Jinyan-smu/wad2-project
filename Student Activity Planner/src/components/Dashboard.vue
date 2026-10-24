@@ -6,7 +6,7 @@
       <h2>🎓 Student Planner</h2>
       <RouterLink class="active" to="/dashboard">📊 Dashboard</RouterLink>
       <RouterLink to="/assignments">📝 Assignments</RouterLink>
-      <a>📅 Activities</a>
+      <RouterLink to="/activities">📅 Activities</RouterLink>
       <a>🌤️ Weather</a>
       <a>👥 Group Meetings</a>
     </aside>
