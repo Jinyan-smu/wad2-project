@@ -26,5 +26,12 @@
     "email": "test@gmail.com",
     "passwordHash": "$2b$10$kO88BuDBnhbg3dUTwRfeCewpyo0WrbwN0/JAJ9lPwzWvbS.DTYUs6",
     "createdAt": "2026-10-12T13:33:18.529Z"
+  },
+  {
+    "id": "e2488a55-d0de-41df-9123-c73f9d6fd99a",
+    "username": "test2",
+    "email": "test2@outlook.com",
+    "passwordHash": "$2b$10$qC7yFzoUgktSxcGWXcT4VOj/zcK7s2khPEwFMCkRAaZAsJYJwZ6f.",
+    "createdAt": "2026-10-13T01:53:29.155Z"
   }
 ]
