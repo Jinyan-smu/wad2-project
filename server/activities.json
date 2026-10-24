@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "title": "Morning Run",
+    "place": "East Coast Park",
+    "outdoor": true,
+    "when": "2026-10-24T23:00:00.000Z",
+    "end": "2026-10-25T00:00:00.000Z",
+    "done": false
+  },
+  {
+    "id": 2,
+    "title": "Team Meeting",
+    "place": "Library Room 3",
+    "outdoor": false,
+    "when": "2026-10-26T06:00:00.000Z",
+    "end": "2026-10-26T08:00:00.000Z",
+    "done": false
+  },
+  {
+    "id": 3,
+    "title": "Inter-Hall Football",
+    "place": "University Field",
+    "outdoor": true,
+    "when": "2026-10-27T06:00:00.000Z",
+    "end": "2026-10-27T09:00:00.000Z",
+    "done": false
+  },
+  {
+    "id": 4,
+    "title": "Beach BBQ",
+    "place": "Sentosa",
+    "outdoor": true,
+    "when": "2026-10-29T09:30:00.000Z",
+    "end": "2026-10-29T13:00:00.000Z",
+    "done": false
+  }
+]

@@ -9,6 +9,10 @@ const crypto = require('crypto');
 const PORT = 8000;
 const SESSION_SECRET = "67676767676767PDIDDYSECRET"
 const USERS_FILE = path.join(__dirname, 'users.json')
+const COURSES_FILE = path.join(__dirname, 'courses.json')
+const ASSIGNMENTS_FILE = path.join(__dirname, 'assignments.json')
+const QUIZZES_FILE = path.join(__dirname, 'quizzes.json')
+const ACTIVITIES_FILE = path.join(__dirname, 'activities.json')
 const app = express()
 
 app.use(cors({
@@ -67,6 +71,138 @@ function createSession(req, user) {
 async function writeUsers(data) {
   await fs.writeFile(USERS_FILE, JSON.stringify(data, null, 2))    
 }
+
+async function readJsonFile(filePath) {
+  const contents = await fs.readFile(filePath, 'utf8')
+  return JSON.parse(contents)
+}
+
+async function writeJsonFile(filePath, data) {
+  await fs.writeFile(filePath, JSON.stringify(data, null, 2) + '\n')
+}
+
+function requireLogin(req, res, next) {
+  if (!req.session.user) {
+    return res.status(401).json({ message: 'Please log in first.' })
+  }
+
+  next()
+}
+
+app.get('/api/planner-data', requireLogin, async (req, res, next) => {
+  try {
+    const [courseData, assignmentData, quizData, activities] = await Promise.all([
+      readJsonFile(COURSES_FILE),
+      readJsonFile(ASSIGNMENTS_FILE),
+      readJsonFile(QUIZZES_FILE),
+      readJsonFile(ACTIVITIES_FILE)
+    ])
+
+    const courses = (courseData.Items || []).map(item => item.OrgUnit).filter(Boolean)
+    const courseNames = new Map(courses.map(course => [String(course.Id), course.Name]))
+    const assignments = Object.entries(assignmentData).flatMap(([courseId, items]) =>
+      (Array.isArray(items) ? items : [])
+        .filter(item => !item.IsCustom || item.OwnerId === req.session.user.id)
+        .map(item => {
+        return {
+          Id: item.Id,
+          Name: item.Name,
+          Type: 'assignment',
+          CourseId: courseId,
+          CourseName: courseNames.get(courseId) || 'Unknown course',
+          DueDate: item.DueDate || null,
+          EventDate: item.DueDate || null,
+          EventDateLabel: item.DueDate ? 'Due' : 'No due date',
+          IsCustom: Boolean(item.IsCustom)
+        }
+        })
+    )
+
+    const quizzes = Object.entries(quizData).flatMap(([courseId, data]) => {
+      const items = Array.isArray(data) ? data : (data.Items || [])
+
+      return items.map(item => ({
+        Id: item.QuizId ?? item.Id,
+        Name: item.Name,
+        Type: 'quiz',
+        CourseId: courseId,
+        CourseName: courseNames.get(courseId) || 'Unknown course',
+        DueDate: item.DueDate || null,
+        StartDate: item.StartDate || null,
+        EventDate: item.DueDate || item.StartDate || null,
+        EventDateLabel: item.DueDate ? 'Due' : item.StartDate ? 'Available' : 'No date',
+        IsCustom: false
+      }))
+    })
+
+    res.json({
+      courses: courses.map(({ Id, Name, Code }) => ({ Id, Name, Code })),
+      assignments,
+      quizzes,
+      activities: Array.isArray(activities) ? activities : []
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.post('/api/assignments', requireLogin, async (req, res, next) => {
+  try {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
+    const courseId = String(req.body?.courseId || '')
+    const dueDateInput = req.body?.dueDate || null
+
+    if (!name || !courseId) {
+      return res.status(400).json({ message: 'Assignment name and course are required.' })
+    }
+
+    const [courseData, assignmentData] = await Promise.all([
+      readJsonFile(COURSES_FILE),
+      readJsonFile(ASSIGNMENTS_FILE)
+    ])
+    const course = (courseData.Items || []).map(item => item.OrgUnit).find(item =>
+      String(item?.Id) === courseId
+    )
+
+    if (!course) {
+      return res.status(400).json({ message: 'Choose a course from the course list.' })
+    }
+
+    let dueDate = null
+    if (dueDateInput) {
+      const parsedDate = new Date(dueDateInput)
+      if (Number.isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ message: 'Enter a valid due date.' })
+      }
+      dueDate = parsedDate.toISOString()
+    }
+
+    const courseAssignments = Array.isArray(assignmentData[courseId]) ? assignmentData[courseId] : []
+    const assignment = {
+      Id: Date.now(),
+      Name: name,
+      DueDate: dueDate,
+      CourseId: courseId,
+      IsCustom: true,
+      OwnerId: req.session.user.id,
+      CreatedAt: new Date().toISOString()
+    }
+
+    courseAssignments.push(assignment)
+    assignmentData[courseId] = courseAssignments
+    await writeJsonFile(ASSIGNMENTS_FILE, assignmentData)
+
+    res.status(201).json({
+      assignment: {
+        ...assignment,
+        Type: 'assignment',
+        CourseName: course.Name
+      }
+    })
+  } catch (error) {
+    next(error)
+  }
+})
 
 app.post('/api/register', async (req, res) => {
   const { name, email, password } = req.body || {}

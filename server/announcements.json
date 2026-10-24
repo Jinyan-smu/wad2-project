@@ -1,0 +1,90 @@
+{
+  "463052": [
+    {
+      "Id": 98183,
+      "Title": "Postpone of Quiz 3",
+      "Body": { "Text": "Quiz 3 is postponed to Week 11. The announcement notes the quiz format, duration, and weeks in scope." },
+      "CreatedDate": "2026-10-12T05:22:00.000Z"
+    },
+    {
+      "Id": 98054,
+      "Title": "Agentblazer and Sample Exam Paper",
+      "Body": { "Text": "The post reminds students about the profile submission deadline and points to a sample exam paper in course content." },
+      "CreatedDate": "2026-10-06T01:07:00.000Z"
+    },
+    {
+      "Id": 97776,
+      "Title": "Week 7 Quiz",
+      "Body": { "Text": "The second IS210 quiz is scheduled for the Week 7 class. The post notes the duration and material in scope." },
+      "CreatedDate": "2026-09-25T07:40:00.000Z"
+    },
+    {
+      "Id": 96976,
+      "Title": "Week 4 Quiz",
+      "Body": { "Text": "The first IS210 quiz is scheduled for the Week 4 class. The post notes the duration and material in scope." },
+      "CreatedDate": "2026-09-02T06:30:00.000Z"
+    },
+    {
+      "Id": 990301,
+      "Title": "Project Deliverable 2 Briefing",
+      "Body": { "Text": "The next project milestone focuses on evaluating the proposed process changes. Review the submission checklist and confirm your group's presentation slot." },
+      "CreatedDate": "2026-10-20T03:00:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990302,
+      "Title": "Consultation Sign-Up Open",
+      "Body": { "Text": "Groups can book a consultation to discuss their process models and report drafts. Please bring specific questions and share your latest materials before the meeting." },
+      "CreatedDate": "2026-10-17T02:30:00.000Z",
+      "IsMock": true
+    }
+  ],
+  "459712": [
+    {
+      "Id": 990303,
+      "Title": "API Milestone Resources Available",
+      "Body": { "Text": "Reference examples for REST requests and JSON responses have been added to the course materials. Review them before starting the API integration milestone." },
+      "CreatedDate": "2026-10-21T04:00:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990304,
+      "Title": "Project Check-In Schedule",
+      "Body": { "Text": "Project check-ins will take place during the upcoming lab sessions. Each team should be ready to demonstrate its current application flow and explain its next development steps." },
+      "CreatedDate": "2026-10-18T02:00:00.000Z",
+      "IsMock": true
+    }
+  ],
+  "459652": [
+    {
+      "Id": 990305,
+      "Title": "Graph Traversal Lab Preparation",
+      "Body": { "Text": "Please review the breadth-first and depth-first traversal examples before the next programming lab. Bring your questions about visited-node tracking and runtime analysis." },
+      "CreatedDate": "2026-10-22T01:00:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990306,
+      "Title": "Quiz Review Materials",
+      "Body": { "Text": "A short review guide covering recent algorithm topics is available in the course materials. Use it to prepare for the upcoming weekly quiz." },
+      "CreatedDate": "2026-10-19T03:30:00.000Z",
+      "IsMock": true
+    }
+  ],
+  "462761": [
+    {
+      "Id": 990307,
+      "Title": "Usability Testing Workshop",
+      "Body": { "Text": "The next workshop will cover writing neutral task prompts and capturing useful observations. Bring a draft of your usability test plan for peer feedback." },
+      "CreatedDate": "2026-10-23T02:00:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990308,
+      "Title": "Prototype Feedback Session",
+      "Body": { "Text": "Teams will exchange prototype feedback in the upcoming class. Please make sure your main interaction flow is ready to test and share." },
+      "CreatedDate": "2026-10-20T02:30:00.000Z",
+      "IsMock": true
+    }
+  ]
+}

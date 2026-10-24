@@ -1,0 +1,27 @@
+{
+  "PagingInfo": { "Bookmark": null, "HasMoreItems": false },
+  "Items": [
+    { "OrgUnit": { "Id": 463052, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS210-Business Process Analysis & Solutioning-Merged Section", "Code": "2026-271IS210_MERGED_SECTION", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 462761, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS211-Interaction Design and Prototyping-Merged Section", "Code": "2026-271IS211_MERGED_SECTION", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 459713, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS216-G8-9-10-Web Application Development II", "Code": "2026-271IS216G8-9-10", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 459083, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "COR1305-G5-6-7-Modeling & Data Analytics", "Code": "2026-271COR1305G5-6-7", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 459652, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS115-G1-2-Algorithms and Programming", "Code": "2026-271IS115G1-2", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 459085, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "COR1305-G7-Modeling & Data Analytics", "Code": "2026-271COR1305G7", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 459676, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS211-G1-2-3-4-Interaction Design and Prototyping", "Code": "2026-271IS211G1-2-3-4", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 459669, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS211-G1-Interaction Design and Prototyping", "Code": "2026-271IS211G1", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 462651, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS115-Algorithms and Programming-Merged Section", "Code": "2026-271IS115_MERGED_SECTION", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 459712, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS216-G8-Web Application Development II", "Code": "2026-271IS216G8", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 461903, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "IS216-Web Application Development II-Merged Section", "Code": "2026-271IS216_MERGED_SECTION", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 457140, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "Student Orientation to eLearn 2026-27", "Code": "SOC_2026-27", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 436368, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "SMU Travel Safety (UG)", "Code": "OSS_OTSG_UG", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 419686, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "LIB001 - Library Research Skills 2025-26", "Code": "LibraryRS_2025-26", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 317642, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "New, Blended Learning at SMU", "Code": "2022_CTE_TLSDT", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 298109, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "Mental Health and You", "Code": "2021_DOS_MHY", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 422710, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "Supporting a Harassment-Free Environment 2025 (UG)", "Code": "2025_UG_DOS_SHFE", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 296574, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "Country Immersion Modules", "Code": "2021_DOS_CIM", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 279693, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "SMU Workplace Safety and Health", "Code": "2020_OSS_WSH", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 389954, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "Guide to Learning with AI", "Code": "2024_SSC_AI_Learning", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 269146, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "SMU Code of Student Conduct and Academic Integrity", "Code": "2020_DOS_SCOCAI", "HomeUrl": null, "ImageUrl": null } },
+    { "OrgUnit": { "Id": 422711, "Type": { "Id": 3, "Code": "Course Offering", "Name": "Course Offering" }, "Name": "Co-Curricular Learning 2025", "Code": "2025_DOS_CCL", "HomeUrl": null, "ImageUrl": null } }
+  ]
+}

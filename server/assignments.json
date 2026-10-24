@@ -1,0 +1,84 @@
+{
+  "459652": [
+    {
+      "Id": 990101,
+      "Name": "Algorithm Analysis Practice Set",
+      "DueDate": "2026-10-29T15:59:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990102,
+      "Name": "Programming Lab: Graph Traversal",
+      "DueDate": "2026-11-05T15:59:00.000Z",
+      "IsMock": true
+    }
+  ],
+  "462761": [
+    {
+      "Id": 1792820336550,
+      "Name": "personal test assingment",
+      "DueDate": "2026-10-31T11:40:00.000Z",
+      "CourseId": "462761",
+      "IsCustom": true,
+      "OwnerId": "cec2603c-9891-4dd7-84d2-2288a609c071",
+      "CreatedAt": "2026-10-24T05:38:56.550Z"
+    }
+  ],
+  "463052": [
+    {
+      "Id": 120753,
+      "Name": "Subway Capacity Analysis Peak Hour",
+      "DueDate": null
+    },
+    {
+      "Id": 120918,
+      "Name": "Project Deliverable 1 (G6)",
+      "DueDate": "2026-09-20T00:30:00.000Z"
+    },
+    {
+      "Id": 121767,
+      "Name": "Untitled",
+      "DueDate": null
+    },
+    {
+      "Id": 990103,
+      "Name": "Process Model and Requirements Report",
+      "DueDate": "2026-11-02T15:59:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990104,
+      "Name": "Group Presentation: Process Improvement Proposal",
+      "DueDate": "2026-11-16T15:59:00.000Z",
+      "IsMock": true
+    }
+  ],
+  "459712": [
+    {
+      "Id": 990105,
+      "Name": "Vue Components and Routing Exercise",
+      "DueDate": "2026-10-30T15:59:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990106,
+      "Name": "API Integration Milestone",
+      "DueDate": "2026-11-06T15:59:00.000Z",
+      "IsMock": true
+    }
+  ],
+  "462761": [
+    {
+      "Id": 990107,
+      "Name": "Usability Test Plan",
+      "DueDate": "2026-11-03T15:59:00.000Z",
+      "IsMock": true
+    },
+    {
+      "Id": 990108,
+      "Name": "Interactive Prototype Submission",
+      "DueDate": "2026-11-12T15:59:00.000Z",
+      "IsMock": true
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Register from '@/components/Register.vue'
 import Login from '@/components/Login.vue'
 import Dashboard from '@/components/Dashboard.vue'
+import Assignments from '@/components/Assignments.vue'
 import axios from 'axios'
 
 const router = createRouter({
@@ -25,6 +26,12 @@ const router = createRouter({
       path: '/dashboard',
       name: 'Dashboard',
       component: Dashboard,
+      meta: {requiresAuth: true}
+    },
+    {
+      path: '/assignments',
+      name: 'Assignments',
+      component: Assignments,
       meta: {requiresAuth: true}
     }
 
