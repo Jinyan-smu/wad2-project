@@ -622,7 +622,7 @@
 		</aside>
 
 		<main class="main activities-page">
-			<div class="container-xxl activities-container">
+			<div class="container-fluid activities-container">
 				<header class="header activities-header">
 					<div>
 						<h1>Activities</h1>
@@ -845,7 +845,7 @@
 							</div>
 						</div>
 
-						<div class="map-layout" :class="{ split: viewMode === 'map' }">
+						<div class="map-layout">
 							<div v-show="viewMode === 'map'" class="map-column">
 								<div class="map-wrap">
 									<svg
@@ -929,7 +929,7 @@
 								</div>
 							</div>
 
-							<div class="list-column">
+							<div v-show="viewMode === 'list'" class="list-column">
 								<div v-if="loading" class="loading-state" role="status">
 									<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
 									Loading activities…
@@ -1010,8 +1010,6 @@
 	color: var(--brand);
 }
 .activities-page {
-	max-width: 1600px;
-	margin: 0 auto;
 	width: 100%;
 }
 .activities-header h1 {
@@ -1127,24 +1125,17 @@
 	min-width: 130px;
 }
 
-/* Layout: map beside the list on wide screens, stacked on small ones */
+/* Map and list use separate full-width views. */
 .map-layout {
 	display: grid;
-	gap: 1.25rem;
+	grid-template-columns: minmax(0, 1fr);
+	width: 100%;
 	padding-top: 1.1rem;
 }
-.map-layout.split {
-	grid-template-columns: minmax(0, 1fr);
-}
-@media (min-width: 1200px) {
-	.map-layout.split {
-		grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
-	}
-	.map-layout.split .list-column {
-		max-height: 640px;
-		overflow-y: auto;
-		padding-right: 0.25rem;
-	}
+.map-column,
+.list-column {
+	min-width: 0;
+	width: 100%;
 }
 
 /* Map */

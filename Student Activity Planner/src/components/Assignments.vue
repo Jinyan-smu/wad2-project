@@ -13,11 +13,29 @@
   const saving = ref(false)
   const loadError = ref('')
   const formError = ref('')
+  const actionError = ref('')
   const successMessage = ref('')
   const showForm = ref(false)
+  const editingAssignment = ref(null)
   const selectedCourseId = ref('all')
+  const searchQuery = ref('')
+  const statusFilter = ref('all')
+  const typeFilter = ref('all')
+  const activeView = ref('calendar')
+  const collapsedCourseIds = ref([])
   const selectedDateKey = ref('')
   const currentMonth = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+  const typeFilterOptions = [
+    { value: 'all', label: 'All types' },
+    { value: 'assignment', label: 'Assignments' },
+    { value: 'quiz', label: 'Quizzes' },
+  ]
+  const statusFilterOptions = [
+    { value: 'all', label: 'All' },
+    { value: 'upcoming', label: 'Upcoming' },
+    { value: 'overdue', label: 'Overdue' },
+    { value: 'completed', label: 'Completed' },
+  ]
 
   const form = ref({
     name: '',
@@ -43,7 +61,14 @@
         ...item,
         EventDate: item.EventDate || item.DueDate || item.StartDate || null,
         EventDateLabel: item.EventDateLabel || (item.DueDate ? 'Due' : 'No due date'),
+        Done: Boolean(item.Done),
       }))
+      .filter((item) => typeFilter.value === 'all' || item.Type === typeFilter.value)
+      .filter((item) => {
+        const query = searchQuery.value.trim().toLowerCase()
+        return !query || `${item.Name} ${item.CourseName}`.toLowerCase().includes(query)
+      })
+      .filter((item) => statusFilter.value === 'all' || eventStatus(item) === statusFilter.value)
       .sort((first, second) => {
         if (!first.EventDate) return 1
         if (!second.EventDate) return -1
@@ -53,6 +78,15 @@
 
   const scheduledEvents = computed(() => calendarEvents.value.filter((item) => item.EventDate))
   const undatedEvents = computed(() => calendarEvents.value.filter((item) => !item.EventDate))
+  const groupedEvents = computed(() => {
+    const groups = new Map()
+    calendarEvents.value.forEach((event) => {
+      const id = String(event.CourseId)
+      if (!groups.has(id)) groups.set(id, { id, name: event.CourseName, events: [] })
+      groups.get(id).events.push(event)
+    })
+    return [...groups.values()].sort((first, second) => first.name.localeCompare(second.name))
+  })
   const monthTitle = computed(() =>
     currentMonth.value.toLocaleDateString('en-SG', {
       month: 'long',
@@ -92,6 +126,10 @@
     ),
   )
 
+  const hasActiveFilters = computed(() =>
+    Boolean(searchQuery.value || selectedCourseId.value !== 'all' || statusFilter.value !== 'all' || typeFilter.value !== 'all'),
+  )
+
   const monthEventCount = computed(
     () =>
       scheduledEvents.value.filter((item) => {
@@ -120,6 +158,80 @@
     return new Date(value).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit' })
   }
 
+  function eventStatus(item) {
+    if (item.Done) return 'completed'
+    if (!item.EventDate) return 'undated'
+
+    const eventDate = new Date(item.DueDate || item.EventDate)
+    if (item.DueDate && eventDate < new Date()) return 'overdue'
+    if (eventDate >= new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())) {
+      return 'upcoming'
+    }
+    return 'past'
+  }
+
+  function eventStatusLabel(item) {
+    const status = eventStatus(item)
+    return ({
+      completed: 'Completed',
+      overdue: 'Overdue',
+      upcoming: 'Upcoming',
+      undated: 'No date',
+      past: 'Past',
+    })[status]
+  }
+
+  function friendlyEventDate(item) {
+    if (!item.EventDate) return 'No due date'
+
+    const value = new Date(item.DueDate || item.EventDate)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const eventDay = new Date(value)
+    eventDay.setHours(0, 0, 0, 0)
+    const dayDifference = Math.round((eventDay - today) / 86400000)
+    const label = item.DueDate ? 'Due' : 'Available'
+
+    if (item.DueDate && value < new Date()) {
+      if (dayDifference === 0) return 'Overdue · earlier today'
+      return `Overdue by ${Math.abs(dayDifference)} day${Math.abs(dayDifference) === 1 ? '' : 's'}`
+    }
+    if (dayDifference === 0) return `${label} today`
+    if (dayDifference === 1) return `${label} tomorrow`
+    if (dayDifference > 1 && dayDifference <= 7) return `${label} in ${dayDifference} days`
+    return `${label} ${formatDate(value, { day: 'numeric', month: 'short' })}`
+  }
+
+  function localDateTimeInput(value) {
+    if (!value) return ''
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ''
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  }
+
+  function clearFilters() {
+    searchQuery.value = ''
+    selectedCourseId.value = 'all'
+    statusFilter.value = 'all'
+    typeFilter.value = 'all'
+  }
+
+  function toggleCourse(id) {
+    const key = String(id)
+    collapsedCourseIds.value = collapsedCourseIds.value.includes(key)
+      ? collapsedCourseIds.value.filter((courseId) => courseId !== key)
+      : [...collapsedCourseIds.value, key]
+  }
+
+  function openCourseList() {
+    activeView.value = 'list'
+    collapsedCourseIds.value = groupedEvents.value.map((group) => group.id)
+  }
+
+  function isCourseCollapsed(id) {
+    return collapsedCourseIds.value.includes(String(id))
+  }
+
   function changeMonth(amount) {
     currentMonth.value = new Date(
       currentMonth.value.getFullYear(),
@@ -145,6 +257,29 @@
     showForm.value = !showForm.value
     formError.value = ''
     successMessage.value = ''
+    actionError.value = ''
+    if (!showForm.value) {
+      editingAssignment.value = null
+      form.value.name = ''
+      form.value.dueDate = ''
+      if (courses.value.length) form.value.courseId = String(courses.value[0].Id)
+    } else {
+      editingAssignment.value = null
+      form.value.name = ''
+      form.value.dueDate = ''
+    }
+  }
+
+  function startEditingAssignment(event) {
+    editingAssignment.value = event
+    form.value.name = event.Name
+    form.value.courseId = String(event.CourseId)
+    form.value.dueDate = localDateTimeInput(event.DueDate)
+    formError.value = ''
+    successMessage.value = ''
+    actionError.value = ''
+    showForm.value = true
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function loadPlannerData() {
@@ -167,7 +302,7 @@
     }
   }
 
-  async function addAssignment() {
+  async function saveAssignment() {
     formError.value = ''
     successMessage.value = ''
 
@@ -188,26 +323,54 @@
 
     saving.value = true
     try {
-      await axios.post(
-        `${API_URL}/assignments`,
-        {
-          name: form.value.name.trim(),
-          courseId: form.value.courseId,
-          dueDate,
-        },
-        { withCredentials: true },
-      )
+      const payload = {
+        name: form.value.name.trim(),
+        courseId: form.value.courseId,
+        dueDate,
+      }
+      if (editingAssignment.value) {
+        await axios.patch(
+          `${API_URL}/assignments/${encodeURIComponent(form.value.courseId)}/${encodeURIComponent(editingAssignment.value.Id)}`,
+          payload,
+          { withCredentials: true },
+        )
+      } else {
+        await axios.post(`${API_URL}/assignments`, payload, { withCredentials: true })
+      }
 
       await loadPlannerData()
       form.value.name = ''
       form.value.dueDate = ''
       showForm.value = false
-      successMessage.value = 'Assignment saved to the project data file.'
+      successMessage.value = editingAssignment.value
+        ? 'Assignment updated.'
+        : 'Assignment saved to the project data file.'
+      editingAssignment.value = null
     } catch (error) {
       formError.value =
         error.response?.data?.message || 'Could not save the assignment. Please try again.'
     } finally {
       saving.value = false
+    }
+  }
+
+  async function toggleCompleted(event) {
+    actionError.value = ''
+    const done = !event.Done
+    try {
+      await axios.patch(
+        `${API_URL}/coursework/${event.Type}/${encodeURIComponent(event.CourseId)}/${encodeURIComponent(event.Id)}`,
+        { done },
+        { withCredentials: true },
+      )
+      const items = event.Type === 'quiz' ? quizzes.value : assignments.value
+      const item = items.find((candidate) =>
+        String(candidate.Id) === String(event.Id) && String(candidate.CourseId) === String(event.CourseId),
+      )
+      if (item) item.Done = done
+      successMessage.value = done ? 'Marked as completed.' : 'Marked as not completed.'
+    } catch (error) {
+      actionError.value = error.response?.data?.message || 'Could not update this item. Please try again.'
     }
   }
 
@@ -249,14 +412,14 @@
 					<div class="section-heading form-heading">
 						<div>
 							<p class="eyebrow">PERSONAL COURSE WORK</p>
-							<h2>Add an assignment</h2>
+							<h2>{{ editingAssignment ? 'Edit assignment' : 'Add an assignment' }}</h2>
 						</div>
-						<span class="badge rounded-pill text-bg-primary">Saved locally</span>
+						<span class="badge rounded-pill text-bg-primary">{{ editingAssignment ? 'Custom assignment' : 'Saved to project JSON' }}</span>
 					</div>
 
 					<div v-if="formError" class="alert alert-danger py-2" role="alert">{{ formError }}</div>
 
-					<form class="assignment-form row g-3 align-items-end" @submit.prevent="addAssignment">
+					<form class="assignment-form row g-3 align-items-end" @submit.prevent="saveAssignment">
 						<div class="form-field assignment-name-field col-12">
 							<label for="assignment-name" class="form-label">Assignment name</label>
 							<input
@@ -275,6 +438,7 @@
 								id="assignment-course"
 								v-model="form.courseId"
 								class="form-select"
+								:disabled="Boolean(editingAssignment)"
 								required
 							>
 								<option disabled value="">Choose a course</option>
@@ -297,7 +461,7 @@
 						<div class="form-actions col-12 d-flex justify-content-end gap-2">
 							<button type="button" class="btn btn-outline-secondary" @click="toggleForm">Cancel</button>
 							<button type="submit" class="btn btn-primary" :disabled="saving">
-								{{ saving ? 'Saving…' : 'Save assignment' }}
+								{{ saving ? 'Saving…' : editingAssignment ? 'Update assignment' : 'Save assignment' }}
 							</button>
 						</div>
 					</form>
@@ -338,16 +502,21 @@
 				<div class="card-body">
 					<div class="planner-toolbar">
 						<h2 class="calendar-view-title">Assignments and quizzes</h2>
-
-						<label class="course-filter">
-							<span>Course</span>
-							<select v-model="selectedCourseId" class="form-select form-select-sm">
-								<option value="all">All courses</option>
-								<option v-for="course in courses" :key="course.Id" :value="String(course.Id)">
-									{{ course.Name }}
-								</option>
-							</select>
-						</label>
+						<div class="planner-toolbar-controls">
+							<label class="course-filter">
+								<span>Course</span>
+								<select v-model="selectedCourseId" class="form-select form-select-sm">
+									<option value="all">All courses</option>
+									<option v-for="course in courses" :key="course.Id" :value="String(course.Id)">
+										{{ course.Name }}
+									</option>
+								</select>
+							</label>
+							<label class="search-filter">
+								<span class="visually-hidden">Search coursework</span>
+								<input v-model="searchQuery" class="form-control form-control-sm" type="search" placeholder="Search assignments or courses" />
+							</label>
+						</div>
 					</div>
 
 					<div v-if="loading" class="loading-state" role="status">
@@ -356,6 +525,21 @@
 					</div>
 
 					<template v-else>
+						<div class="assignment-view-filters">
+							<div class="view-switch" role="group" aria-label="Choose coursework view">
+								<button type="button" :class="{ active: activeView === 'calendar' }" :aria-pressed="activeView === 'calendar'" @click="activeView = 'calendar'">Calendar</button>
+								<button type="button" :class="{ active: activeView === 'list' }" :aria-pressed="activeView === 'list'" @click="openCourseList">Course list</button>
+							</div>
+							<div class="filter-group" role="group" aria-label="Filter by item type">
+								<button v-for="option in typeFilterOptions" :key="option.value" type="button" :class="{ active: typeFilter === option.value }" @click="typeFilter = option.value">{{ option.label }}</button>
+							</div>
+							<div class="filter-group" role="group" aria-label="Filter by status">
+								<button v-for="option in statusFilterOptions" :key="option.value" type="button" :class="{ active: statusFilter === option.value }" @click="statusFilter = option.value">{{ option.label }}</button>
+							</div>
+							<button v-if="hasActiveFilters" type="button" class="btn btn-sm btn-link clear-filters" @click="clearFilters">Clear filters</button>
+						</div>
+						<div v-if="actionError" class="alert alert-danger py-2" role="alert">{{ actionError }}</div>
+						<div v-if="activeView === 'calendar'">
 						<div class="calendar-toolbar">
 							<div class="calendar-month-title">
 								<h2>{{ monthTitle }}</h2>
@@ -406,7 +590,7 @@
 											v-for="event in day.events.slice(0, 3)"
 											:key="`${event.Type}-${event.CourseId}-${event.Id}`"
 											class="calendar-event"
-											:class="event.Type"
+											:class="[event.Type, eventStatus(event)]"
 										>
 											<span class="event-dot" aria-hidden="true"></span>
 											<span class="event-name">{{ event.Name }}</span>
@@ -422,6 +606,15 @@
 						<div class="calendar-legend">
 							<span><i class="legend-dot assignment-dot"></i>Assignment</span>
 							<span><i class="legend-dot quiz-dot"></i>Quiz</span>
+							<span><i class="legend-dot overdue-dot"></i>Overdue</span>
+							<span><i class="legend-dot completed-dot"></i>Completed</span>
+						</div>
+						<div v-if="!calendarEvents.length" class="empty-state compact-empty">
+							<span>🔎</span>
+							<h2>{{ hasActiveFilters ? 'No matching coursework' : 'No assignments or quizzes yet' }}</h2>
+							<p>{{ hasActiveFilters ? 'Try changing your search or filters.' : 'Add a personal assignment to start planning your deadlines.' }}</p>
+							<button v-if="hasActiveFilters" type="button" class="btn btn-sm btn-outline-primary" @click="clearFilters">Clear filters</button>
+							<button v-else type="button" class="btn btn-sm btn-primary" @click="toggleForm">Add assignment</button>
 						</div>
 
 						<section v-if="selectedDateKey" class="selected-date-panel">
@@ -442,9 +635,10 @@
 								<div>
 									<strong>{{ event.Name }}</strong>
 									<span
-										>{{ event.CourseName }} · {{ event.EventDateLabel }}
-										{{ formatTime(event.EventDate) }}</span
+										>{{ event.CourseName }}<template v-if="formatTime(event.EventDate)"> · {{ formatTime(event.EventDate) }}</template></span
 									>
+									<span class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
+									<span class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
 								</div>
 								<span
 									class="badge rounded-pill"
@@ -452,6 +646,11 @@
 								>
 									{{ event.Type === 'quiz' ? 'Quiz' : 'Assignment' }}
 								</span>
+								<label class="completion-action">
+									<input type="checkbox" :checked="event.Done" :aria-label="`Mark ${event.Name} completed`" @change="toggleCompleted(event)" />
+									Completed
+								</label>
+								<button v-if="event.Type === 'assignment' && event.IsCustom" type="button" class="btn btn-sm btn-outline-secondary" @click="startEditingAssignment(event)">Edit</button>
 							</div>
 						</section>
 
@@ -484,6 +683,36 @@
 									</span>
 								</div>
 							</div>
+						</section>
+						</div>
+
+						<section v-else class="course-group-list">
+							<div v-if="!calendarEvents.length" class="empty-state">
+								<span>🔎</span>
+								<h2>{{ hasActiveFilters ? 'No matching coursework' : 'No assignments or quizzes yet' }}</h2>
+								<p>{{ hasActiveFilters ? 'Try changing your search or filters.' : 'Add a personal assignment to start planning your deadlines.' }}</p>
+								<button v-if="hasActiveFilters" type="button" class="btn btn-sm btn-outline-primary" @click="clearFilters">Clear filters</button>
+								<button v-else type="button" class="btn btn-sm btn-primary" @click="toggleForm">Add assignment</button>
+							</div>
+							<article v-for="group in groupedEvents" :key="group.id" class="course-group">
+								<button type="button" class="course-group-heading" :aria-expanded="!isCourseCollapsed(group.id)" @click="toggleCourse(group.id)">
+									<span><strong>{{ group.name }}</strong><small>{{ group.events.length }} item{{ group.events.length === 1 ? '' : 's' }}</small></span>
+									<span class="group-chevron" aria-hidden="true">{{ isCourseCollapsed(group.id) ? '＋' : '−' }}</span>
+								</button>
+								<div v-if="!isCourseCollapsed(group.id)" class="course-group-items">
+									<article v-for="event in group.events" :key="`${event.Type}-${event.CourseId}-${event.Id}`" class="coursework-card" :class="eventStatus(event)">
+										<span class="event-type-icon" :class="event.Type">{{ event.Type === 'quiz' ? '✏️' : '📝' }}</span>
+										<div class="coursework-card-main">
+											<strong>{{ event.Name }}</strong>
+											<span>{{ event.CourseName }}<template v-if="formatTime(event.EventDate)"> · {{ formatTime(event.EventDate) }}</template></span>
+											<span class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
+											<span class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
+										</div>
+										<label class="completion-action"><input type="checkbox" :checked="event.Done" :aria-label="`Mark ${event.Name} completed`" @change="toggleCompleted(event)" /> Completed</label>
+										<button v-if="event.Type === 'assignment' && event.IsCustom" type="button" class="btn btn-sm btn-outline-secondary" @click="startEditingAssignment(event)">Edit</button>
+									</article>
+								</div>
+							</article>
 						</section>
 					</template>
 				</div>
@@ -565,6 +794,13 @@
 	padding-bottom: 1rem;
 	border-bottom: 1px solid #edf0f6;
 }
+.planner-toolbar-controls {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+}
 .calendar-view-title {
 	margin: 0;
 	font-size: 1rem;
@@ -581,6 +817,46 @@
 .course-filter select {
 	min-width: 190px;
 	max-width: min(42vw, 360px);
+}
+.search-filter input {
+	min-width: min(280px, 40vw);
+}
+.assignment-view-filters {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.65rem;
+	padding: 1rem 0 0.25rem;
+}
+.view-switch,
+.filter-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.2rem;
+	padding: 0.2rem;
+	border: 1px solid #e8eaf3;
+	border-radius: 0.75rem;
+	background: #f8f9fc;
+}
+.view-switch button,
+.filter-group button {
+	padding: 0.38rem 0.7rem;
+	border: 0;
+	border-radius: 0.55rem;
+	background: transparent;
+	color: #687087;
+	font-size: 0.76rem;
+	font-weight: 650;
+	white-space: nowrap;
+}
+.view-switch button.active,
+.filter-group button.active {
+	background: #fff;
+	box-shadow: 0 1px 4px rgba(33, 42, 92, 0.12);
+	color: var(--brand);
+}
+.clear-filters {
+	text-decoration: none;
 }
 .loading-state {
 	display: flex;
@@ -694,6 +970,17 @@
 	background: #e9f5ff;
 	color: #21659a;
 }
+.calendar-event.overdue {
+	background: #fff0f0;
+	color: #a43f49;
+}
+.calendar-event.completed {
+	background: #edf7ef;
+	color: #3c7651;
+}
+.calendar-event.completed .event-name {
+	text-decoration: line-through;
+}
 .event-dot,
 .legend-dot {
 	width: 0.42rem;
@@ -735,6 +1022,148 @@
 	margin-top: 1.35rem;
 	padding-top: 1.1rem;
 	border-top: 1px solid #edf0f6;
+}
+.event-date-label {
+	width: fit-content;
+	color: #52716a !important;
+	font-weight: 650;
+}
+.event-date-label.overdue {
+	color: #a43f49 !important;
+}
+.event-date-label.completed {
+	color: #3c7651 !important;
+}
+.event-date-label.past,
+.event-date-label.undated {
+	color: #858ba0 !important;
+}
+.coursework-status {
+	display: inline-flex;
+	width: fit-content;
+	align-items: center;
+	padding: 0.14rem 0.48rem;
+	border-radius: 99px;
+	background: #eef0ff;
+	color: #4848a5;
+	font-size: 0.66rem;
+	font-weight: 750;
+}
+.coursework-status.overdue {
+	background: #fff0f0;
+	color: #a43f49;
+}
+.coursework-status.completed {
+	background: #eaf6ed;
+	color: #3c7651;
+}
+.coursework-status.past,
+.coursework-status.undated {
+	background: #f0f1f5;
+	color: #6f7588;
+}
+.completion-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: #687087;
+	font-size: 0.75rem;
+	white-space: nowrap;
+}
+.completion-action input {
+	width: 1rem;
+	height: 1rem;
+	accent-color: var(--brand);
+}
+.course-group-list {
+	display: grid;
+	gap: 0.85rem;
+	padding-top: 1rem;
+}
+.course-group {
+	overflow: hidden;
+	border: 1px solid #e8eaf2;
+	border-radius: 0.85rem;
+	background: #fff;
+}
+.course-group-heading {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.9rem 1rem;
+	border: 0;
+	background: #f8f9fc;
+	color: #292e45;
+	text-align: left;
+}
+.course-group-heading > span:first-child {
+	display: grid;
+	gap: 0.18rem;
+	min-width: 0;
+}
+.course-group-heading strong {
+	overflow: hidden;
+	font-size: 0.9rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.course-group-heading small {
+	color: #81879a;
+	font-size: 0.72rem;
+}
+.group-chevron {
+	color: var(--brand);
+	font-size: 1.2rem;
+}
+.course-group-items {
+	padding: 0 0.85rem;
+}
+.coursework-card {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	padding: 0.85rem 0.2rem;
+	border-bottom: 1px solid #eff1f6;
+}
+.coursework-card:last-child {
+	border-bottom: 0;
+}
+.coursework-card.overdue {
+	border-left: 3px solid #cf6670;
+	padding-left: 0.65rem;
+}
+.coursework-card.completed .coursework-card-main > strong {
+	color: #737b91;
+	text-decoration: line-through;
+}
+.coursework-card-main {
+	display: grid;
+	flex: 1 1 220px;
+	gap: 0.2rem;
+	min-width: 0;
+}
+.coursework-card-main > strong {
+	overflow-wrap: anywhere;
+	font-size: 0.88rem;
+}
+.coursework-card-main > span {
+	color: #7c8296;
+	font-size: 0.76rem;
+}
+.coursework-card-main > .event-date-label {
+	font-weight: 650;
+}
+.compact-empty {
+	padding: 1.5rem 1rem;
+}
+.overdue-dot {
+	background: #c85b65;
+}
+.completed-dot {
+	background: #4d9364;
 }
 .selected-date-panel h3,
 .undated-section h3 {
@@ -834,6 +1263,37 @@
 	}
 	.planner-toolbar {
 		align-items: stretch;
+	}
+	.planner-toolbar-controls {
+		align-items: stretch;
+		flex-direction: column;
+		width: 100%;
+	}
+	.search-filter,
+	.search-filter input {
+		width: 100%;
+		min-width: 0;
+	}
+	.assignment-view-filters {
+		align-items: flex-start;
+	}
+	.view-switch,
+	.filter-group {
+		max-width: 100%;
+		overflow-x: auto;
+	}
+	.coursework-card {
+		align-items: flex-start;
+	}
+	.coursework-card-main {
+		flex-basis: calc(100% - 3.5rem);
+	}
+	.event-detail {
+		align-items: flex-start;
+		flex-wrap: wrap;
+	}
+	.event-detail > div {
+		flex-basis: calc(100% - 3.25rem);
 	}
 	.form-actions .btn {
 		flex: 1;
