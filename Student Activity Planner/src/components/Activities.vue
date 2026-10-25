@@ -636,7 +636,7 @@ onMounted(async () => {
 		</aside>
 
 		<main class="main activities-page">
-			<div class="container-xxl activities-container">
+			<div class="container-fluid activities-container">
 				<header class="header activities-header">
 					<div>
 						<h1>Activities</h1>
@@ -824,7 +824,7 @@ onMounted(async () => {
 							</div>
 						</div>
 
-						<div class="map-layout" :class="{ split: viewMode === 'map' }">
+						<div class="map-layout">
 							<div v-show="viewMode === 'map'" class="map-column">
 								<div class="map-wrap">
 									<svg ref="svgEl" class="activities-map" :class="{ picking: showForm }"
@@ -894,7 +894,7 @@ onMounted(async () => {
 								</div>
 							</div>
 
-							<div class="list-column">
+							<div v-show="viewMode === 'list'" class="list-column">
 								<div v-if="loading" class="loading-state" role="status">
 									<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
 									Loading activities…
@@ -975,8 +975,6 @@ onMounted(async () => {
 }
 
 .activities-page {
-	max-width: 1600px;
-	margin: 0 auto;
 	width: 100%;
 }
 
@@ -1109,10 +1107,11 @@ onMounted(async () => {
 	min-width: 130px;
 }
 
-/* Layout: map beside the list on wide screens, stacked on small ones */
+/* Map and list use separate full-width views. */
 .map-layout {
 	display: grid;
-	gap: 1.25rem;
+	grid-template-columns: minmax(0, 1fr);
+	width: 100%;
 	padding-top: 1.1rem;
 }
 
@@ -1130,6 +1129,10 @@ onMounted(async () => {
 		overflow-y: auto;
 		padding-right: 0.25rem;
 	}
+.map-column,
+.list-column {
+	min-width: 0;
+	width: 100%;
 }
 
 /* Map */

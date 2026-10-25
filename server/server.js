@@ -13,6 +13,7 @@ const COURSES_FILE = path.join(__dirname, 'courses.json')
 const ASSIGNMENTS_FILE = path.join(__dirname, 'assignments.json')
 const QUIZZES_FILE = path.join(__dirname, 'quizzes.json')
 const ACTIVITIES_FILE = path.join(__dirname, 'activities.json')
+const COURSEWORK_PROGRESS_FILE = path.join(__dirname, 'coursework-progress.json')
 const app = express()
 
 app.use(cors({
@@ -91,15 +92,17 @@ function requireLogin(req, res, next) {
 
 app.get('/api/planner-data', requireLogin, async (req, res, next) => {
   try {
-    const [courseData, assignmentData, quizData, activities] = await Promise.all([
+    const [courseData, assignmentData, quizData, activities, progressData] = await Promise.all([
       readJsonFile(COURSES_FILE),
       readJsonFile(ASSIGNMENTS_FILE),
       readJsonFile(QUIZZES_FILE),
-      readJsonFile(ACTIVITIES_FILE)
+      readJsonFile(ACTIVITIES_FILE),
+      readJsonFile(COURSEWORK_PROGRESS_FILE)
     ])
 
     const courses = (courseData.Items || []).map(item => item.OrgUnit).filter(Boolean)
     const courseNames = new Map(courses.map(course => [String(course.Id), course.Name]))
+    const userProgress = progressData[req.session.user.id] || {}
     const assignments = Object.entries(assignmentData).flatMap(([courseId, items]) =>
       (Array.isArray(items) ? items : [])
         .filter(item => !item.IsCustom || item.OwnerId === req.session.user.id)
@@ -113,7 +116,8 @@ app.get('/api/planner-data', requireLogin, async (req, res, next) => {
           DueDate: item.DueDate || null,
           EventDate: item.DueDate || null,
           EventDateLabel: item.DueDate ? 'Due' : 'No due date',
-          IsCustom: Boolean(item.IsCustom)
+          IsCustom: Boolean(item.IsCustom),
+          Done: Boolean(userProgress[`assignment:${courseId}:${item.Id}`] ?? item.Done)
         }
         })
     )
@@ -131,7 +135,8 @@ app.get('/api/planner-data', requireLogin, async (req, res, next) => {
         StartDate: item.StartDate || null,
         EventDate: item.DueDate || item.StartDate || null,
         EventDateLabel: item.DueDate ? 'Due' : item.StartDate ? 'Available' : 'No date',
-        IsCustom: false
+        IsCustom: false,
+        Done: Boolean(userProgress[`quiz:${courseId}:${item.QuizId ?? item.Id}`])
       }))
     })
 
@@ -141,6 +146,31 @@ app.get('/api/planner-data', requireLogin, async (req, res, next) => {
       quizzes,
       activities: Array.isArray(activities) ? activities : []
     })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/coursework/:type/:courseId/:id', requireLogin, async (req, res, next) => {
+  try {
+    const { type, courseId, id } = req.params
+    const done = req.body?.done
+    if (!['assignment', 'quiz'].includes(type) || typeof done !== 'boolean') {
+      return res.status(400).json({ message: 'Choose a valid coursework item and completion status.' })
+    }
+
+    const sourceFile = type === 'assignment' ? ASSIGNMENTS_FILE : QUIZZES_FILE
+    const sourceData = await readJsonFile(sourceFile)
+    const source = sourceData[courseId]
+    const items = Array.isArray(source) ? source : (source?.Items || [])
+    const exists = items.some(item => String(type === 'quiz' ? (item.QuizId ?? item.Id) : item.Id) === id)
+    if (!exists) return res.status(404).json({ message: 'Coursework item not found.' })
+
+    const progressData = await readJsonFile(COURSEWORK_PROGRESS_FILE)
+    if (!progressData[req.session.user.id]) progressData[req.session.user.id] = {}
+    progressData[req.session.user.id][`${type}:${courseId}:${id}`] = done
+    await writeJsonFile(COURSEWORK_PROGRESS_FILE, progressData)
+    res.json({ done })
   } catch (error) {
     next(error)
   }
@@ -284,6 +314,51 @@ app.post('/api/assignments', requireLogin, async (req, res, next) => {
         ...assignment,
         Type: 'assignment',
         CourseName: course.Name
+      }
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+app.patch('/api/assignments/:courseId/:id', requireLogin, async (req, res, next) => {
+  try {
+    const { courseId, id } = req.params
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
+    const dueDateInput = req.body?.dueDate || null
+    if (!name) return res.status(400).json({ message: 'Assignment name is required.' })
+
+    let dueDate = null
+    if (dueDateInput) {
+      const parsedDate = new Date(dueDateInput)
+      if (Number.isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ message: 'Enter a valid due date.' })
+      }
+      dueDate = parsedDate.toISOString()
+    }
+
+    const [courseData, assignmentData] = await Promise.all([
+      readJsonFile(COURSES_FILE),
+      readJsonFile(ASSIGNMENTS_FILE)
+    ])
+    const course = (courseData.Items || []).map(item => item.OrgUnit).find(item => String(item?.Id) === courseId)
+    const assignment = (assignmentData[courseId] || []).find(item =>
+      String(item.Id) === id && item.IsCustom && item.OwnerId === req.session.user.id
+    )
+    if (!course || !assignment) {
+      return res.status(404).json({ message: 'Your custom assignment could not be found.' })
+    }
+
+    assignment.Name = name
+    assignment.DueDate = dueDate
+    await writeJsonFile(ASSIGNMENTS_FILE, assignmentData)
+    res.json({
+      assignment: {
+        ...assignment,
+        Type: 'assignment',
+        CourseName: course.Name,
+        EventDate: dueDate,
+        EventDateLabel: dueDate ? 'Due' : 'No due date'
       }
     })
   } catch (error) {
