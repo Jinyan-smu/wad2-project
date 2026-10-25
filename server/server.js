@@ -187,7 +187,7 @@ app.post('/api/activities', requireLogin, async (req, res, next) => {
   }
 })
 
-app.patch('/api/activities/:id', requireLogin, async (req, res, next) => {
+app.post('/api/activities/:id', requireLogin, async (req, res, next) => {
   try {
     const activities = await readJsonFile(ACTIVITIES_FILE)
     const activity = activities.find(item => String(item.id) === req.params.id)
@@ -227,7 +227,7 @@ app.delete('/api/activities/:id', requireLogin, async (req, res, next) => {
     }
 
     await writeJsonFile(ACTIVITIES_FILE, remainingActivities)
-    res.status(204).end()
+    res.sendStatus(204)
   } catch (error) {
     next(error)
   }

@@ -1,0 +1,9 @@
+{
+  "ignore": [
+    "activities.json",
+    "assignments.json",
+    "courses.json",
+    "quizzes.json",
+    "users.json"
+  ]
+}

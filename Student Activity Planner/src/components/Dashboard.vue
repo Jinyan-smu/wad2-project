@@ -158,6 +158,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import axios from 'axios'
 
 const userName = ref('there')
 const plannerLoading = ref(true)
@@ -168,10 +169,10 @@ const activities = ref([])
 
 const fetchUserData = async () => {
   try {
-    const response = await fetch('http://localhost:8000/api/me', {
-      credentials: 'include' 
+    const response = await axios.get('http://localhost:8000/api/me', {
+       withCredentials: true 
     })
-    const data = await response.json()
+    const data = response.data
     userName.value = data.user.username
   } catch (err) {
     console.error('Failed to fetch session user:', err)
@@ -183,12 +184,11 @@ const fetchPlannerData = async () => {
   plannerError.value = ''
 
   try {
-    const response = await fetch('http://localhost:8000/api/planner-data', {
-      credentials: 'include'
+    const response = await axios.get('http://localhost:8000/api/planner-data', {
+      withCredentials: true
     })
-    if (!response.ok) throw new Error('Could not load planner data.')
 
-    const data = await response.json()
+    const data = response.data
     const toDashboardItem = (item, type) => ({
       id: item.Id,
       title: item.Name,
