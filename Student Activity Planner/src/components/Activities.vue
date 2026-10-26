@@ -1129,6 +1129,7 @@ onMounted(async () => {
 		overflow-y: auto;
 		padding-right: 0.25rem;
 	}
+}
 .map-column,
 .list-column {
 	min-width: 0;
