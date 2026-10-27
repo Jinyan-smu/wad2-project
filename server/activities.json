@@ -2,57 +2,37 @@
   {
     "id": 1,
     "title": "Morning Run",
-    "place": "East Coast Park, Area C",
+    "place": "East Coast Park",
     "outdoor": true,
     "when": "2026-10-24T23:00:00.000Z",
     "end": "2026-10-25T00:00:00.000Z",
-    "done": false,
-    "lat": 1.3014,
-    "lng": 103.9122
+    "done": false
   },
   {
     "id": 2,
     "title": "Team Meeting",
-    "place": "Li Ka Shing Library, Singapore Management University",
+    "place": "Library Room 3",
     "outdoor": false,
     "when": "2026-10-26T06:00:00.000Z",
     "end": "2026-10-26T08:00:00.000Z",
-    "done": false,
-    "lat": 1.2967,
-    "lng": 103.8497
+    "done": false
   },
   {
     "id": 3,
     "title": "Inter-Hall Football",
-    "place": "Bishan-Ang Mo Kio Park",
+    "place": "University Field",
     "outdoor": true,
     "when": "2026-10-27T06:00:00.000Z",
     "end": "2026-10-27T09:00:00.000Z",
-    "done": false,
-    "lat": 1.3626,
-    "lng": 103.8456
+    "done": false
   },
   {
     "id": 4,
     "title": "Beach BBQ",
-    "place": "Palawan Beach, Sentosa",
+    "place": "Sentosa",
     "outdoor": true,
     "when": "2026-10-29T09:30:00.000Z",
     "end": "2026-10-29T13:00:00.000Z",
-    "done": false,
-    "lat": 1.2494,
-    "lng": 103.8239
-  },
-  {
-    "id": "6a267eeb-5cbb-4d5d-99eb-ef830f8fa3cc",
-    "title": "Health Checkup",
-    "place": "Ang Mo Kio Polyclinic, 21, Ang Mo Kio Central 2, Ang Mo Kio Town Centre, Kebun Baru, Ang Mo Kio, North-east Region, Singapore, 569666, Singapore",
-    "outdoor": false,
-    "when": "2026-10-27T01:25:00.000Z",
-    "end": "2026-10-27T02:25:00.000Z",
-    "done": false,
-    "notes": "",
-    "lat": 1.3743003,
-    "lng": 103.8456719
+    "done": false
   }
 ]

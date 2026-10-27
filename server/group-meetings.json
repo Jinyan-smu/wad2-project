@@ -1,0 +1,412 @@
+{
+  "isMock": true,
+  "schemaVersion": 2,
+  "description": "AI-assisted fictional fixture: four users, two joined groups and one invited group for demo user A. Membership, consent, invitations and booking are pre-seeded examples, not real actions. No computed matching results are stored here.",
+  "busyIntervalPolicy": "busyIntervals already includes all seeded booked meetings via sourceMeetingId. Do not add those meeting intervals a second time. Select people by group, but consider their busy intervals from every group.",
+  "invitationPolicy": "pending is not membership; accepted invites are already reflected in memberIds. Reading a notification does not accept it. Group membership does not automatically enable availability sharing.",
+  "timeZone": "Asia/Singapore",
+  "intervalConvention": "Start inclusive, end exclusive: [startAt, endAt). Adjacent intervals do not overlap.",
+  "demoUserId": "mock-user-a",
+  "defaultGroupId": "mock-group-is216",
+  "groups": [
+    {
+      "id": "mock-group-is216",
+      "name": "IS216 Demo Group",
+      "ownerId": "mock-user-a",
+      "memberIds": [
+        "mock-user-a",
+        "mock-user-b",
+        "mock-user-c",
+        "9a2c02fc-2c84-4aad-be97-c6380658b2b1"
+      ]
+    },
+    {
+      "id": "mock-group-study",
+      "name": "Study Demo Group",
+      "ownerId": "mock-user-d",
+      "memberIds": [
+        "mock-user-a",
+        "mock-user-d"
+      ]
+    },
+    {
+      "id": "mock-group-presentation",
+      "name": "Presentation Demo Group",
+      "ownerId": "mock-user-b",
+      "memberIds": [
+        "mock-user-b",
+        "mock-user-d"
+      ]
+    },
+    {
+      "id": "group-88885b2d-1860-4bfb-b16a-712d7ffb5e3f",
+      "name": "111",
+      "ownerId": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "memberIds": [
+        "9a2c02fc-2c84-4aad-be97-c6380658b2b1"
+      ],
+      "createdAt": "2026-10-25T19:19:33.332Z"
+    }
+  ],
+  "meetingPreferences": {
+    "fromDate": "2026-10-26",
+    "toDate": "2026-10-27",
+    "startTime": "09:00",
+    "endTime": "18:00",
+    "durationMinutes": 60
+  },
+  "members": [
+    {
+      "id": "mock-user-a",
+      "name": "Demo Member A",
+      "scheduleStatus": "complete",
+      "coverageStartAt": "2026-10-26T00:00:00+08:00",
+      "coverageEndAt": "2026-10-28T00:00:00+08:00"
+    },
+    {
+      "id": "mock-user-b",
+      "name": "Demo Member B",
+      "scheduleStatus": "complete",
+      "coverageStartAt": "2026-10-26T00:00:00+08:00",
+      "coverageEndAt": "2026-10-28T00:00:00+08:00"
+    },
+    {
+      "id": "mock-user-c",
+      "name": "Demo Member C",
+      "scheduleStatus": "complete",
+      "coverageStartAt": "2026-10-26T00:00:00+08:00",
+      "coverageEndAt": "2026-10-28T00:00:00+08:00"
+    },
+    {
+      "id": "mock-user-d",
+      "name": "Demo Member D",
+      "scheduleStatus": "complete",
+      "coverageStartAt": "2026-10-26T00:00:00+08:00",
+      "coverageEndAt": "2026-10-28T00:00:00+08:00"
+    },
+    {
+      "id": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "name": "demo",
+      "scheduleStatus": "complete",
+      "coverageStartAt": null,
+      "coverageEndAt": null,
+      "isRegistered": true
+    }
+  ],
+  "availabilityShares": [
+    {
+      "groupId": "mock-group-is216",
+      "userId": "mock-user-a",
+      "enabled": true
+    },
+    {
+      "groupId": "mock-group-is216",
+      "userId": "mock-user-b",
+      "enabled": true
+    },
+    {
+      "groupId": "mock-group-is216",
+      "userId": "mock-user-c",
+      "enabled": true
+    },
+    {
+      "groupId": "mock-group-study",
+      "userId": "mock-user-a",
+      "enabled": false
+    },
+    {
+      "groupId": "mock-group-study",
+      "userId": "mock-user-d",
+      "enabled": true
+    },
+    {
+      "groupId": "mock-group-presentation",
+      "userId": "mock-user-b",
+      "enabled": true
+    },
+    {
+      "groupId": "mock-group-presentation",
+      "userId": "mock-user-d",
+      "enabled": false
+    },
+    {
+      "groupId": "mock-group-is216",
+      "userId": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "enabled": true
+    },
+    {
+      "groupId": "group-88885b2d-1860-4bfb-b16a-712d7ffb5e3f",
+      "userId": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "enabled": true
+    }
+  ],
+  "invitations": [
+    {
+      "id": "mock-invite-incoming",
+      "groupId": "mock-group-presentation",
+      "fromUserId": "mock-user-b",
+      "toUserId": "mock-user-a",
+      "status": "pending",
+      "createdAt": "2026-10-25T18:00:00+08:00",
+      "respondedAt": null
+    },
+    {
+      "id": "mock-invite-outgoing",
+      "groupId": "mock-group-is216",
+      "fromUserId": "mock-user-a",
+      "toUserId": "mock-user-d",
+      "status": "pending",
+      "createdAt": "2026-10-25T19:00:00+08:00",
+      "respondedAt": null
+    },
+    {
+      "id": "mock-invite-accepted",
+      "groupId": "mock-group-study",
+      "fromUserId": "mock-user-d",
+      "toUserId": "mock-user-a",
+      "status": "accepted",
+      "createdAt": "2026-10-24T10:00:00+08:00",
+      "respondedAt": "2026-10-24T12:00:00+08:00"
+    },
+    {
+      "id": "mock-invite-declined",
+      "groupId": "mock-group-is216",
+      "fromUserId": "mock-user-a",
+      "toUserId": "mock-user-d",
+      "status": "declined",
+      "createdAt": "2026-10-23T10:00:00+08:00",
+      "respondedAt": "2026-10-23T11:00:00+08:00"
+    },
+    {
+      "id": "invite-702a0c3b-d70d-4880-9f78-8245d7e34e4f",
+      "groupId": "mock-group-is216",
+      "fromUserId": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "toUserId": "c8b70eed-610b-4bf9-9e20-a9c39da7dc83",
+      "status": "pending",
+      "createdAt": "2026-10-25T19:23:53.828Z",
+      "respondedAt": null
+    }
+  ],
+  "busyIntervals": [
+    {
+      "id": "mock-busy-a-26-1",
+      "userId": "mock-user-a",
+      "startAt": "2026-10-26T09:00:00+08:00",
+      "endAt": "2026-10-26T14:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-a-26-2",
+      "userId": "mock-user-a",
+      "startAt": "2026-10-26T17:00:00+08:00",
+      "endAt": "2026-10-26T18:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-b-26-1",
+      "userId": "mock-user-b",
+      "startAt": "2026-10-26T09:00:00+08:00",
+      "endAt": "2026-10-26T15:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-c-26-1",
+      "userId": "mock-user-c",
+      "startAt": "2026-10-26T09:00:00+08:00",
+      "endAt": "2026-10-26T15:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-c-26-2",
+      "userId": "mock-user-c",
+      "startAt": "2026-10-26T16:30:00+08:00",
+      "endAt": "2026-10-26T18:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-a-27-1",
+      "userId": "mock-user-a",
+      "startAt": "2026-10-27T09:00:00+08:00",
+      "endAt": "2026-10-27T11:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-a-27-2",
+      "userId": "mock-user-a",
+      "startAt": "2026-10-27T13:00:00+08:00",
+      "endAt": "2026-10-27T18:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-b-27-1",
+      "userId": "mock-user-b",
+      "startAt": "2026-10-27T09:00:00+08:00",
+      "endAt": "2026-10-27T10:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-b-27-2",
+      "userId": "mock-user-b",
+      "startAt": "2026-10-27T12:00:00+08:00",
+      "endAt": "2026-10-27T18:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-c-27-1",
+      "userId": "mock-user-c",
+      "startAt": "2026-10-27T09:00:00+08:00",
+      "endAt": "2026-10-27T10:30:00+08:00"
+    },
+    {
+      "id": "mock-busy-c-27-2",
+      "userId": "mock-user-c",
+      "startAt": "2026-10-27T12:30:00+08:00",
+      "endAt": "2026-10-27T18:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-d-26-1",
+      "userId": "mock-user-d",
+      "startAt": "2026-10-26T09:00:00+08:00",
+      "endAt": "2026-10-26T14:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-d-26-2",
+      "userId": "mock-user-d",
+      "startAt": "2026-10-26T17:00:00+08:00",
+      "endAt": "2026-10-26T18:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-d-27-1",
+      "userId": "mock-user-d",
+      "startAt": "2026-10-27T09:00:00+08:00",
+      "endAt": "2026-10-27T11:30:00+08:00"
+    },
+    {
+      "id": "mock-busy-d-27-2",
+      "userId": "mock-user-d",
+      "startAt": "2026-10-27T13:00:00+08:00",
+      "endAt": "2026-10-27T18:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-a-study-meeting",
+      "userId": "mock-user-a",
+      "sourceType": "meeting",
+      "sourceMeetingId": "mock-meeting-study",
+      "startAt": "2026-10-26T16:00:00+08:00",
+      "endAt": "2026-10-26T17:00:00+08:00"
+    },
+    {
+      "id": "mock-busy-d-study-meeting",
+      "userId": "mock-user-d",
+      "sourceType": "meeting",
+      "sourceMeetingId": "mock-meeting-study",
+      "startAt": "2026-10-26T16:00:00+08:00",
+      "endAt": "2026-10-26T17:00:00+08:00"
+    },
+    {
+      "id": "busy-72061633-95e7-4de1-98b7-52ba7b937eed",
+      "userId": "mock-user-a",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-a066fe7b-7823-4781-b9c8-dde5808ed694",
+      "startAt": "2026-10-26T20:00:00.000Z",
+      "endAt": "2026-10-26T21:00:00.000Z"
+    },
+    {
+      "id": "busy-a7698d0e-d121-4dfd-9a87-60007975c6d3",
+      "userId": "mock-user-b",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-a066fe7b-7823-4781-b9c8-dde5808ed694",
+      "startAt": "2026-10-26T20:00:00.000Z",
+      "endAt": "2026-10-26T21:00:00.000Z"
+    },
+    {
+      "id": "busy-fbba120b-ab1d-462b-a00e-abfc16524c56",
+      "userId": "mock-user-c",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-a066fe7b-7823-4781-b9c8-dde5808ed694",
+      "startAt": "2026-10-26T20:00:00.000Z",
+      "endAt": "2026-10-26T21:00:00.000Z"
+    },
+    {
+      "id": "busy-d99e9d88-60e7-4d24-9ec1-78c6a29035c8",
+      "userId": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-a066fe7b-7823-4781-b9c8-dde5808ed694",
+      "startAt": "2026-10-26T20:00:00.000Z",
+      "endAt": "2026-10-26T21:00:00.000Z"
+    },
+    {
+      "id": "busy-7ea71271-6130-49d6-9626-3c4d1e799b0a",
+      "userId": "mock-user-a",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-2ca42a75-1b59-42ea-8506-6d26882074a4",
+      "startAt": "2026-10-26T07:00:00.000Z",
+      "endAt": "2026-10-26T08:00:00.000Z"
+    },
+    {
+      "id": "busy-29f2ba45-551b-4a20-a2c8-c6f19a5b799e",
+      "userId": "mock-user-b",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-2ca42a75-1b59-42ea-8506-6d26882074a4",
+      "startAt": "2026-10-26T07:00:00.000Z",
+      "endAt": "2026-10-26T08:00:00.000Z"
+    },
+    {
+      "id": "busy-35422240-3f36-43a9-b8b5-9b1f8de33b03",
+      "userId": "mock-user-c",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-2ca42a75-1b59-42ea-8506-6d26882074a4",
+      "startAt": "2026-10-26T07:00:00.000Z",
+      "endAt": "2026-10-26T08:00:00.000Z"
+    },
+    {
+      "id": "busy-e58374f4-577e-42ec-aa47-72aedee3bd85",
+      "userId": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "sourceType": "meeting",
+      "sourceMeetingId": "meeting-2ca42a75-1b59-42ea-8506-6d26882074a4",
+      "startAt": "2026-10-26T07:00:00.000Z",
+      "endAt": "2026-10-26T08:00:00.000Z"
+    }
+  ],
+  "meetings": [
+    {
+      "id": "mock-meeting-study",
+      "groupId": "mock-group-study",
+      "title": "Seeded study meeting",
+      "participantIds": [
+        "mock-user-a",
+        "mock-user-d"
+      ],
+      "startAt": "2026-10-26T16:00:00+08:00",
+      "endAt": "2026-10-26T17:00:00+08:00",
+      "status": "booked",
+      "isMock": true
+    },
+    {
+      "id": "meeting-a066fe7b-7823-4781-b9c8-dde5808ed694",
+      "groupId": "mock-group-is216",
+      "title": "demo1",
+      "participantIds": [
+        "mock-user-a",
+        "mock-user-b",
+        "mock-user-c",
+        "9a2c02fc-2c84-4aad-be97-c6380658b2b1"
+      ],
+      "startAt": "2026-10-26T20:00:00.000Z",
+      "endAt": "2026-10-26T21:00:00.000Z",
+      "status": "booked",
+      "createdBy": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "createdAt": "2026-10-25T19:09:56.046Z"
+    },
+    {
+      "id": "meeting-2ca42a75-1b59-42ea-8506-6d26882074a4",
+      "groupId": "mock-group-is216",
+      "title": "demo",
+      "participantIds": [
+        "mock-user-a",
+        "mock-user-b",
+        "mock-user-c",
+        "9a2c02fc-2c84-4aad-be97-c6380658b2b1"
+      ],
+      "startAt": "2026-10-26T07:00:00.000Z",
+      "endAt": "2026-10-26T08:00:00.000Z",
+      "status": "booked",
+      "createdBy": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
+      "createdAt": "2026-10-25T19:18:36.568Z",
+      "forced": false
+    }
+  ],
+  "version": 1,
+  "seededAt": "2026-10-25T18:00:36.270Z"
+}
