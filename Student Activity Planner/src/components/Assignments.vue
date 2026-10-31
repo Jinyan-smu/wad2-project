@@ -388,7 +388,7 @@
 			<RouterLink to="/assignments" class="active">📝 Assignments</RouterLink>
 			<RouterLink to="/activities">📅 Activities</RouterLink>
 			<a>🌤️ Weather</a>
-      		<a>👥 Group Meetings</a>
+			<RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
 		</aside>
 
 		<main class="main assignments-page">

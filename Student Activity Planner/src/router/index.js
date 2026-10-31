@@ -4,6 +4,7 @@ import Login from '@/components/Login.vue'
 import Dashboard from '@/components/Dashboard.vue'
 import Assignments from '@/components/Assignments.vue'
 import Activities from '@/components/Activities.vue'
+import GroupWork from '@/components/GroupWork.vue'
 import axios from 'axios'
 
 const router = createRouter({
@@ -39,6 +40,12 @@ const router = createRouter({
       path: '/activities',
       name: 'Activities',
       component: Activities,
+      meta: {requiresAuth: true}
+    },
+    {
+      path: '/groupwork',
+      name: 'GroupWork',
+      component: GroupWork,
       meta: {requiresAuth: true}
     }
 

@@ -632,7 +632,7 @@ onMounted(async () => {
 			<RouterLink to="/assignments">📝 Assignments</RouterLink>
 			<RouterLink to="/activities" class="active">📅 Activities</RouterLink>
 			<a>🌤️ Weather</a>
-			<a>👥 Group Meetings</a>
+			<RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
 		</aside>
 
 		<main class="main activities-page">
