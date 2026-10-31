@@ -6,9 +6,9 @@
       <h2>🎓 Student Planner</h2>
       <RouterLink class="active" to="/dashboard">📊 Dashboard</RouterLink>
       <RouterLink to="/assignments">📝 Assignments</RouterLink>
-      <a>📅 Activities</a>
+      <RouterLink to="/activities">📅 Activities</RouterLink>
       <a>🌤️ Weather</a>
-      <RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
+      <a>👥 Group Meetings</a>
     </aside>
 
     <main class="main">
@@ -24,24 +24,17 @@
         </div>
       </header>
 
-      <nav class="d-flex d-xl-none flex-wrap gap-2 mb-3" aria-label="Planner pages">
-        <RouterLink class="btn btn-sm btn-outline-secondary" to="/assignments">Assignments</RouterLink>
-        <RouterLink class="btn btn-sm btn-outline-primary" to="/groupwork">Group Meetings</RouterLink>
-      </nav>
-
       <p v-if="plannerError" class="alert alert-danger py-2 px-3" role="alert">{{ plannerError }}</p>
       <p v-else-if="plannerLoading" class="muted">Loading your course work…</p>
 
       <!-- Stats -->
       <section class="row g-3 mb-4" aria-label="Planner summary">
         <div class="col-12 col-sm-6 col-lg-3" v-for="s in stats" :key="s.label">
-          <div class="card stat h-100">
-            <div class="card-body">
-              <span class="emoji">{{ s.icon }}</span>
-              <div>
-                <b>{{ s.value }}</b>
-                <small>{{ s.label }}</small>
-              </div>
+          <div class="overview-card h-100">
+            <span class="overview-icon" :class="s.iconClass">{{ s.icon }}</span>
+            <div>
+              <strong>{{ s.value }}</strong>
+              <span>{{ s.label }}</span>
             </div>
           </div>
         </div>
@@ -55,15 +48,26 @@
             <div class="card-body">
               <div class="section-heading">
                 <h3>🕒 Upcoming Timeline</h3>
-                <div class="tabs">
-                  <button v-for="t in ['all', 'assignment', 'quiz']" :key="t"
-                          :class="{ on: filter === t }" @click="filter = t">{{ t }}</button>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                  <div class="tabs">
+                    <button v-for="t in ['all', 'assignment', 'quiz']" :key="t"
+                            :class="{ on: filter === t }" @click="filter = t">{{ t }}</button>
+                  </div>
+                  <div v-if="timelinePageCount > 1" class="d-flex align-items-center gap-2">
+                    <small class="muted" aria-live="polite">{{ timelineRange }}</small>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Upcoming timeline pages">
+                      <button type="button" class="btn btn-outline-secondary" aria-label="Previous six items"
+                              :disabled="timelinePage === 0" @click="timelinePage--">‹</button>
+                      <button type="button" class="btn btn-outline-secondary" aria-label="Next six items"
+                              :disabled="timelinePage >= timelinePageCount - 1" @click="timelinePage++">›</button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <p v-if="!timeline.length" class="empty">Nothing coming up 🎉</p>
 
-              <div v-for="item in timeline" :key="item.type + item.id" class="item" :class="item.type">
+              <div v-for="item in pagedTimeline" :key="item.type + item.id" class="item" :class="item.type">
                 <input type="checkbox" :checked="item.done" @change="toggle(item)" />
                 <div class="info" :class="{ done: item.done }">
                   <strong>{{ item.title }}</strong>
@@ -80,11 +84,20 @@
             <div class="card-body">
               <div class="section-heading">
                 <h3>🚩 Assignments</h3>
-                <div class="filters">
+                <div class="filters d-flex flex-wrap align-items-center gap-2">
                   <select v-model="sortBy" class="form-select form-select-sm w-auto">
                     <option value="deadline">Sort by deadline</option>
                     <option value="course">Sort by course</option>
                   </select>
+                  <div v-if="assignmentPageCount > 1" class="d-flex align-items-center gap-2">
+                    <small class="muted" aria-live="polite">{{ assignmentRange }}</small>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Assignment pages">
+                      <button type="button" class="btn btn-outline-secondary" aria-label="Previous six assignments"
+                              :disabled="assignmentPage === 0" @click="assignmentPage--">‹</button>
+                      <button type="button" class="btn btn-outline-secondary" aria-label="Next six assignments"
+                              :disabled="assignmentPage >= assignmentPageCount - 1" @click="assignmentPage++">›</button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -92,12 +105,16 @@
                 <table class="table table-hover align-middle mb-0">
                   <tbody>
                     <tr v-if="!filteredAssignments.length">
-                      <td colspan="4" class="empty">No assignments are in the JSON data for this course.</td>
+                      <td colspan="3" class="empty">No assignments are in the JSON data for this course.</td>
                     </tr>
-                    <tr v-for="a in filteredAssignments" :key="a.id" :class="{ done: a.done }">
+                    <tr v-for="a in pagedAssignments" :key="a.id" :class="{ done: a.done }">
                       <td><input type="checkbox" :checked="a.done" @change="toggle(a)" /></td>
-                      <td><strong>{{ a.title }}</strong></td>
-                      <td><span class="badge rounded-pill tag">{{ a.courseName }}</span></td>
+                      <td>
+                        <div class="d-flex flex-column align-items-start gap-1">
+                          <strong>{{ a.title }}</strong>
+                          <span class="badge rounded-pill tag">{{ a.courseName }}</span>
+                        </div>
+                      </td>
                       <td class="muted">{{ a.when ? dayLabel(a.when) : 'No due date' }}</td>
                     </tr>
                   </tbody>
@@ -163,8 +180,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import axios from 'axios'
 
 const userName = ref('there')
 const plannerLoading = ref(true)
@@ -175,10 +193,10 @@ const activities = ref([])
 
 const fetchUserData = async () => {
   try {
-    const response = await fetch('http://localhost:8000/api/me', {
-      credentials: 'include' 
+    const response = await axios.get('http://localhost:8000/api/me', {
+       withCredentials: true 
     })
-    const data = await response.json()
+    const data = response.data
     userName.value = data.user.username
   } catch (err) {
     console.error('Failed to fetch session user:', err)
@@ -190,12 +208,11 @@ const fetchPlannerData = async () => {
   plannerError.value = ''
 
   try {
-    const response = await fetch('http://localhost:8000/api/planner-data', {
-      credentials: 'include'
+    const response = await axios.get('http://localhost:8000/api/planner-data', {
+      withCredentials: true
     })
-    if (!response.ok) throw new Error('Could not load planner data.')
 
-    const data = await response.json()
+    const data = response.data
     const toDashboardItem = (item, type) => ({
       id: item.Id,
       title: item.Name,
@@ -250,14 +267,16 @@ const doneCount = computed(() => assignments.value.length - pending.value.length
 const progress = computed(() => Math.round((doneCount.value / assignments.value.length) * 100) || 0)
 
 const stats = computed(() => [
-  { icon: '📝', label: 'Pending assignments', value: pending.value.length },
-  { icon: '⏰', label: 'Due within 3 days', value: pending.value.filter(a => a.when && a.when >= now && a.when - now < 3 * 86400000).length },
-  { icon: '✏️', label: 'Upcoming quizzes', value: quizzes.value.filter(quiz => !quiz.done && quiz.when && quiz.when >= now).length },
-  { icon: '✅', label: 'Completed', value: doneCount.value },
+  { icon: '📝', iconClass: 'assignment-icon', label: 'Pending assignments', value: pending.value.length },
+  { icon: '⏰', iconClass: 'calendar-icon', label: 'Due within 3 days', value: pending.value.filter(a => a.when && a.when >= now && a.when - now < 3 * 86400000).length },
+  { icon: '✏️', iconClass: 'quiz-icon', label: 'Upcoming quizzes', value: quizzes.value.filter(quiz => !quiz.done && quiz.when && quiz.when >= now).length },
+  { icon: '✅', iconClass: 'activity-icon', label: 'Completed', value: doneCount.value },
 ])
 
 /* ---------- Timeline (assignments, quizzes, and future user activities) ---------- */
 const filter = ref('all')
+const timelinePage = ref(0)
+const TIMELINE_PAGE_SIZE = 6
 const timeline = computed(() =>
   [
     ...assignments.value.map(a => ({ ...a, type: 'assignment' })),
@@ -267,9 +286,31 @@ const timeline = computed(() =>
     .filter(i => i.when && i.when >= todayStart && (filter.value === 'all' || i.type === filter.value))
     .sort((a, b) => a.when - b.when)
 )
+const timelinePageCount = computed(() => Math.ceil(timeline.value.length / TIMELINE_PAGE_SIZE))
+const pagedTimeline = computed(() => {
+  const start = timelinePage.value * TIMELINE_PAGE_SIZE
+  return timeline.value.slice(start, start + TIMELINE_PAGE_SIZE)
+})
+const timelineRange = computed(() => {
+  if (!timeline.value.length) return '0 items'
+  const first = timelinePage.value * TIMELINE_PAGE_SIZE + 1
+  const last = Math.min(first + TIMELINE_PAGE_SIZE - 1, timeline.value.length)
+  return `${first}–${last} of ${timeline.value.length}`
+})
+
+watch(filter, () => {
+  timelinePage.value = 0
+})
+
+watch(() => timeline.value.length, length => {
+  const lastPage = Math.max(0, Math.ceil(length / TIMELINE_PAGE_SIZE) - 1)
+  if (timelinePage.value > lastPage) timelinePage.value = lastPage
+})
 
 /* ---------- Assignment filters ---------- */
 const sortBy = ref('deadline')
+const assignmentPage = ref(0)
+const ASSIGNMENT_PAGE_SIZE = 6
 
 const filteredAssignments = computed(() =>
   assignments.value
@@ -280,6 +321,26 @@ const filteredAssignments = computed(() =>
       return a.when - b.when
     })
 )
+const assignmentPageCount = computed(() => Math.ceil(filteredAssignments.value.length / ASSIGNMENT_PAGE_SIZE))
+const pagedAssignments = computed(() => {
+  const start = assignmentPage.value * ASSIGNMENT_PAGE_SIZE
+  return filteredAssignments.value.slice(start, start + ASSIGNMENT_PAGE_SIZE)
+})
+const assignmentRange = computed(() => {
+  if (!filteredAssignments.value.length) return '0 items'
+  const first = assignmentPage.value * ASSIGNMENT_PAGE_SIZE + 1
+  const last = Math.min(first + ASSIGNMENT_PAGE_SIZE - 1, filteredAssignments.value.length)
+  return `${first}–${last} of ${filteredAssignments.value.length}`
+})
+
+watch(sortBy, () => {
+  assignmentPage.value = 0
+})
+
+watch(() => filteredAssignments.value.length, length => {
+  const lastPage = Math.max(0, Math.ceil(length / ASSIGNMENT_PAGE_SIZE) - 1)
+  if (assignmentPage.value > lastPage) assignmentPage.value = lastPage
+})
 
 /* ---------- Conflict detection ---------- */
 const conflicts = computed(() => {

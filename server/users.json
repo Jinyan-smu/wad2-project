@@ -28,17 +28,10 @@
     "createdAt": "2026-10-12T13:33:18.529Z"
   },
   {
-    "id": "c8b70eed-610b-4bf9-9e20-a9c39da7dc83",
-    "username": "CJ",
-    "email": "cj.huang.2025@gmail.com",
-    "passwordHash": "$2b$10$O4Xgu.Lk4MrbCIYutyP6O.ftA3z32bq9Km9aBaca7vxJ/H7Co16Y.",
-    "createdAt": "2026-10-25T13:03:14.582Z"
-  },
-  {
-    "id": "9a2c02fc-2c84-4aad-be97-c6380658b2b1",
-    "username": "demo",
-    "email": "demo@gmail.com",
-    "passwordHash": "$2b$10$S4Wyh8wRFhbbfnmxCyUBiebufYX.3UWumVlsCgfu6LkjHBoS/3X4S",
-    "createdAt": "2026-10-25T18:00:16.913Z"
+    "id": "e2488a55-d0de-41df-9123-c73f9d6fd99a",
+    "username": "test2",
+    "email": "test2@outlook.com",
+    "passwordHash": "$2b$10$qC7yFzoUgktSxcGWXcT4VOj/zcK7s2khPEwFMCkRAaZAsJYJwZ6f.",
+    "createdAt": "2026-10-13T01:53:29.155Z"
   }
 ]
