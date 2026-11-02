@@ -698,7 +698,7 @@ async function joinDemoGroup() {
       <h2>🎓 Student Planner</h2>
       <RouterLink to="/dashboard">📊 Dashboard</RouterLink>
       <RouterLink to="/assignments">📝 Assignments</RouterLink>
-      <a class="disabled-link" aria-disabled="true">📅 Activities</a>
+      <RouterLink to="/activities">📅 Activities</RouterLink>
       <a class="disabled-link" aria-disabled="true">🌤️ Weather</a>
       <RouterLink to="/groupwork" class="active" aria-current="page">👥 Group Meetings</RouterLink>
       <button ref="bellButton" type="button" class="gm-bell"
@@ -716,6 +716,7 @@ async function joinDemoGroup() {
         <nav class="gm-mobile-nav d-flex flex-wrap gap-2 mb-3" aria-label="Mobile navigation">
           <RouterLink class="btn btn-sm btn-outline-secondary" to="/dashboard">Dashboard</RouterLink>
           <RouterLink class="btn btn-sm btn-outline-secondary" to="/assignments">Assignments</RouterLink>
+          <RouterLink class="btn btn-sm btn-outline-secondary" to="/activities">Activities</RouterLink>
           <button ref="mobileBellButton" type="button" class="btn btn-sm btn-outline-secondary gm-bell-mobile"
             :class="{ 'gm-bell-alert': pendingCount > 0 }" :aria-expanded="bellOpen" @click="toggleBell">
             <span aria-hidden="true">🔔</span> Invitations

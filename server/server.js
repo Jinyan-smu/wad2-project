@@ -6,25 +6,22 @@ const session = require('express-session');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const groupMeetings = require('./group-meetings');
+const database = require('./database');
 
-const PORT = 8000;
-const SESSION_SECRET = "67676767676767PDIDDYSECRET"
-const USERS_FILE = path.join(__dirname, 'users.json')
-const COURSES_FILE = path.join(__dirname, 'courses.json')
-const ASSIGNMENTS_FILE = path.join(__dirname, 'assignments.json')
-const QUIZZES_FILE = path.join(__dirname, 'quizzes.json')
-const ACTIVITIES_FILE = path.join(__dirname, 'activities.json')
-const COURSEWORK_PROGRESS_FILE = path.join(__dirname, 'coursework-progress.json')
+const PORT = Number(process.env.PORT) || 8000;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  throw new Error('SESSION_SECRET is required. Add it to server/.env.');
+}
 // Group Meetings state. Created on first use from the read-only fixture that
 // also documents the shape of the data (see MOCK_DATA_README.md).
-const GROUP_STORE_FILE = path.join(__dirname, 'group-meetings.json')
 const GROUP_SEED_FILE = path.join(
   __dirname, '..', 'Student Activity Planner', 'src', 'data', 'group-meetings.mock.json'
 )
 const app = express()
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
 }))
 app.use(express.json());
@@ -43,17 +40,12 @@ app.use(session({
 }))
 
 async function readUsers() {
-  try {
-    const data = await fs.readFile(USERS_FILE, 'utf8')
-    return JSON.parse(data)
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      await writeUsers([])
-      return []
-    }
-
-    throw error
-  }
+  const { rows } = await database.query(
+    `select id, username, email, password_hash as "passwordHash", created_at as "createdAt"
+       from planner_private.app_users
+      order by created_at`
+  )
+  return rows
 }
 
 function createSession(req, user) {
@@ -76,30 +68,138 @@ function createSession(req, user) {
 
 
 
-async function writeUsers(data) {
-  await fs.writeFile(USERS_FILE, JSON.stringify(data, null, 2))    
+async function listReferenceCourses() {
+  const { rows } = await database.query(
+    `select source
+       from planner_private.reference_courses
+      order by sort_order`
+  )
+  return rows.map(row => row.source)
 }
 
-async function readJsonFile(filePath) {
-  const contents = await fs.readFile(filePath, 'utf8')
-  return JSON.parse(contents)
+async function getReferenceCourse(courseId) {
+  const { rows } = await database.query(
+    `select source from planner_private.reference_courses where course_id = $1`,
+    [String(courseId)]
+  )
+  return rows[0]?.source || null
 }
 
-async function writeJsonFile(filePath, data) {
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2) + '\n')
+async function listReferenceAssignments() {
+  const { rows } = await database.query(
+    `select course_id, source
+       from planner_private.reference_assignments
+      order by course_id, sort_order`
+  )
+  return rows.map(row => ({ ...row.source, CourseId: row.course_id }))
 }
 
-async function writeJsonAtomic(filePath, data) {
-  const temporary = `${filePath}.${process.pid}.tmp`
-  await fs.writeFile(temporary, JSON.stringify(data, null, 2) + '\n')
-  await fs.rename(temporary, filePath)
+async function listReferenceQuizzes() {
+  const { rows } = await database.query(
+    `select course_id, source
+       from planner_private.reference_quizzes
+      order by course_id, sort_order`
+  )
+  return rows.map(row => ({ ...row.source, CourseId: row.course_id }))
+}
+
+async function courseworkItemExists(type, courseId, itemId, userId) {
+  const table = type === 'assignment' ? 'reference_assignments' : 'reference_quizzes'
+  const { rows } = await database.query(
+    `select 1 from planner_private.${table} where course_id = $1 and item_id = $2 limit 1`,
+    [String(courseId), String(itemId)]
+  )
+  if (rows.length) return true
+  if (type !== 'assignment') return false
+
+  const custom = await database.query(
+    `select 1 from planner_private.custom_assignments
+      where course_id = $1 and id = $2 and owner_id = $3 limit 1`,
+    [String(courseId), String(itemId), userId]
+  )
+  return custom.rows.length > 0
+}
+
+function toActivity(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    place: row.place,
+    outdoor: row.outdoor,
+    when: new Date(row.starts_at).toISOString(),
+    end: new Date(row.ends_at).toISOString(),
+    done: row.done,
+    notes: row.notes,
+    lat: row.latitude,
+    lng: row.longitude
+  }
+}
+
+async function listActivities(userId) {
+  const { rows } = await database.query(
+    `select id, title, place, outdoor, starts_at, ends_at, done, notes, latitude, longitude
+       from planner_private.activities
+      where owner_id is null or owner_id = $1
+      order by starts_at, id`,
+    [userId]
+  )
+  return rows.map(toActivity)
+}
+
+async function getActivityForUser(id, userId) {
+  const { rows } = await database.query(
+    `select id, title, place, outdoor, starts_at, ends_at, done, notes, latitude, longitude
+       from planner_private.activities
+      where id = $1 and (owner_id is null or owner_id = $2)`,
+    [id, userId]
+  )
+  return rows[0] ? toActivity(rows[0]) : null
+}
+
+async function listCustomAssignments(userId) {
+  const { rows } = await database.query(
+    `select id, owner_id as "OwnerId", course_id as "CourseId", name as "Name",
+            due_at as "DueDate", created_at as "CreatedAt"
+       from planner_private.custom_assignments
+      where owner_id = $1
+      order by created_at, id`,
+    [userId]
+  )
+  return rows.map(row => ({
+    ...row,
+    Id: row.id,
+    IsCustom: true,
+    DueDate: row.DueDate ? new Date(row.DueDate).toISOString() : null,
+    CreatedAt: row.CreatedAt ? new Date(row.CreatedAt).toISOString() : null
+  }))
+}
+
+async function getCourseworkProgress(userId) {
+  const { rows } = await database.query(
+    `select kind, course_id, item_id, done
+       from planner_private.coursework_progress
+      where user_id = $1`,
+    [userId]
+  )
+  return Object.fromEntries(rows.map(row => [
+    `${row.kind}:${row.course_id}:${row.item_id}`,
+    row.done
+  ]))
+}
+
+async function saveCourseworkProgress(userId, kind, courseId, itemId, done) {
+  await database.query(
+    `insert into planner_private.coursework_progress (user_id, kind, course_id, item_id, done)
+     values ($1, $2, $3, $4, $5)
+     on conflict (user_id, kind, course_id, item_id)
+     do update set done = excluded.done, updated_at = now()`,
+    [userId, kind, courseId, itemId, done]
+  )
 }
 
 /* ------------------------------------------------------------------ *
  * Group Meetings storage
  * ------------------------------------------------------------------ */
-
-let groupSeedPromise = null
 
 async function seedGroupStore() {
   const seed = JSON.parse(await fs.readFile(GROUP_SEED_FILE, 'utf8'))
@@ -108,22 +208,26 @@ async function seedGroupStore() {
     version: 1,
     seededAt: new Date().toISOString()
   }
-  await writeJsonAtomic(GROUP_STORE_FILE, state)
   return state
 }
 
 async function readGroupStore() {
-  try {
-    return JSON.parse(await fs.readFile(GROUP_STORE_FILE, 'utf8'))
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-    if (!groupSeedPromise) {
-      groupSeedPromise = seedGroupStore().finally(() => {
-        groupSeedPromise = null
-      })
-    }
-    return groupSeedPromise
-  }
+  return database.withTransaction(async client => {
+    const existing = await client.query(
+      'select state from planner_private.group_meeting_state where singleton = true'
+    )
+    if (existing.rows[0]) return existing.rows[0].state
+
+    await client.query(
+      `insert into planner_private.group_meeting_state (singleton, state)
+       values (true, $1::jsonb) on conflict (singleton) do nothing`,
+      [JSON.stringify(await seedGroupStore())]
+    )
+    const { rows } = await client.query(
+      'select state from planner_private.group_meeting_state where singleton = true'
+    )
+    return rows[0].state
+  })
 }
 
 let groupStoreLock = Promise.resolve()
@@ -137,10 +241,30 @@ function withGroupStoreLock(task) {
 /** Read-modify-write under the lock: guards can never race a second writer. */
 function updateGroupStore(mutator) {
   return withGroupStoreLock(async () => {
-    const state = await readGroupStore()
-    const outcome = await mutator(state)
-    await writeJsonAtomic(GROUP_STORE_FILE, state)
-    return outcome
+    return database.withTransaction(async client => {
+      const current = await client.query(
+        'select state from planner_private.group_meeting_state where singleton = true for update'
+      )
+      let state = current.rows[0]?.state
+      if (!state) {
+        await client.query(
+          `insert into planner_private.group_meeting_state (singleton, state)
+           values (true, $1::jsonb) on conflict (singleton) do nothing`,
+          [JSON.stringify(await seedGroupStore())]
+        )
+        state = (await client.query(
+          'select state from planner_private.group_meeting_state where singleton = true for update'
+        )).rows[0].state
+      }
+      const outcome = await mutator(state)
+      await client.query(
+        `update planner_private.group_meeting_state
+            set state = $1::jsonb, updated_at = now()
+          where singleton = true`,
+        [JSON.stringify(state)]
+      )
+      return outcome
+    })
   })
 }
 
@@ -344,40 +468,35 @@ function requireLogin(req, res, next) {
 
 app.get('/api/planner-data', requireLogin, async (req, res, next) => {
   try {
-    const [courseData, assignmentData, quizData, activities, progressData] = await Promise.all([
-      readJsonFile(COURSES_FILE),
-      readJsonFile(ASSIGNMENTS_FILE),
-      readJsonFile(QUIZZES_FILE),
-      readJsonFile(ACTIVITIES_FILE),
-      readJsonFile(COURSEWORK_PROGRESS_FILE)
+    const [courses, referenceAssignments, referenceQuizzes, activities, customAssignments, userProgress] = await Promise.all([
+      listReferenceCourses(),
+      listReferenceAssignments(),
+      listReferenceQuizzes(),
+      listActivities(req.session.user.id),
+      listCustomAssignments(req.session.user.id),
+      getCourseworkProgress(req.session.user.id)
     ])
 
-    const courses = (courseData.Items || []).map(item => item.OrgUnit).filter(Boolean)
     const courseNames = new Map(courses.map(course => [String(course.Id), course.Name]))
-    const userProgress = progressData[req.session.user.id] || {}
-    const assignments = Object.entries(assignmentData).flatMap(([courseId, items]) =>
-      (Array.isArray(items) ? items : [])
-        .filter(item => !item.IsCustom || item.OwnerId === req.session.user.id)
-        .map(item => {
-        return {
-          Id: item.Id,
-          Name: item.Name,
-          Type: 'assignment',
-          CourseId: courseId,
-          CourseName: courseNames.get(courseId) || 'Unknown course',
-          DueDate: item.DueDate || null,
-          EventDate: item.DueDate || null,
-          EventDateLabel: item.DueDate ? 'Due' : 'No due date',
-          IsCustom: Boolean(item.IsCustom),
-          Done: Boolean(userProgress[`assignment:${courseId}:${item.Id}`] ?? item.Done)
-        }
-        })
-    )
+    const assignments = [...referenceAssignments, ...customAssignments].map(item => {
+      const courseId = String(item.CourseId)
+      return {
+        Id: item.Id,
+        Name: item.Name,
+        Type: 'assignment',
+        CourseId: courseId,
+        CourseName: courseNames.get(courseId) || 'Unknown course',
+        DueDate: item.DueDate || null,
+        EventDate: item.DueDate || null,
+        EventDateLabel: item.DueDate ? 'Due' : 'No due date',
+        IsCustom: Boolean(item.IsCustom),
+        Done: Boolean(userProgress[`assignment:${courseId}:${item.Id}`] ?? item.Done)
+      }
+    })
 
-    const quizzes = Object.entries(quizData).flatMap(([courseId, data]) => {
-      const items = Array.isArray(data) ? data : (data.Items || [])
-
-      return items.map(item => ({
+    const quizzes = referenceQuizzes.map(item => {
+      const courseId = String(item.CourseId)
+      return {
         Id: item.QuizId ?? item.Id,
         Name: item.Name,
         Type: 'quiz',
@@ -389,7 +508,7 @@ app.get('/api/planner-data', requireLogin, async (req, res, next) => {
         EventDateLabel: item.DueDate ? 'Due' : item.StartDate ? 'Available' : 'No date',
         IsCustom: false,
         Done: Boolean(userProgress[`quiz:${courseId}:${item.QuizId ?? item.Id}`])
-      }))
+      }
     })
 
     const meetingActivities = await meetingActivitiesFor(req.session.user.id)
@@ -413,17 +532,11 @@ app.patch('/api/coursework/:type/:courseId/:id', requireLogin, async (req, res, 
       return res.status(400).json({ message: 'Choose a valid coursework item and completion status.' })
     }
 
-    const sourceFile = type === 'assignment' ? ASSIGNMENTS_FILE : QUIZZES_FILE
-    const sourceData = await readJsonFile(sourceFile)
-    const source = sourceData[courseId]
-    const items = Array.isArray(source) ? source : (source?.Items || [])
-    const exists = items.some(item => String(type === 'quiz' ? (item.QuizId ?? item.Id) : item.Id) === id)
-    if (!exists) return res.status(404).json({ message: 'Coursework item not found.' })
+    if (!await courseworkItemExists(type, courseId, id, req.session.user.id)) {
+      return res.status(404).json({ message: 'Coursework item not found.' })
+    }
 
-    const progressData = await readJsonFile(COURSEWORK_PROGRESS_FILE)
-    if (!progressData[req.session.user.id]) progressData[req.session.user.id] = {}
-    progressData[req.session.user.id][`${type}:${courseId}:${id}`] = done
-    await writeJsonFile(COURSEWORK_PROGRESS_FILE, progressData)
+    await saveCourseworkProgress(req.session.user.id, type, courseId, id, done)
     res.json({ done })
   } catch (error) {
     next(error)
@@ -432,8 +545,7 @@ app.patch('/api/coursework/:type/:courseId/:id', requireLogin, async (req, res, 
 
 app.get('/api/activities', requireLogin, async (req, res, next) => {
   try {
-    const activities = await readJsonFile(ACTIVITIES_FILE)
-    res.json(Array.isArray(activities) ? activities : [])
+    res.json(await listActivities(req.session.user.id))
   } catch (error) {
     next(error)
   }
@@ -449,7 +561,6 @@ app.post('/api/activities', requireLogin, async (req, res, next) => {
       return res.status(400).json({ message: 'Enter an activity name and a valid start and end time.' })
     }
 
-    const activities = await readJsonFile(ACTIVITIES_FILE)
     const activity = {
       id: crypto.randomUUID(),
       title: title.trim(),
@@ -463,9 +574,15 @@ app.post('/api/activities', requireLogin, async (req, res, next) => {
       lng: Number.isFinite(lng) ? lng : null
     }
 
-    activities.push(activity)
-    await writeJsonFile(ACTIVITIES_FILE, activities)
-    res.status(201).json(activity)
+    const { rows } = await database.query(
+      `insert into planner_private.activities
+        (id, owner_id, title, place, outdoor, starts_at, ends_at, done, notes, latitude, longitude)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       returning id, title, place, outdoor, starts_at, ends_at, done, notes, latitude, longitude`,
+      [activity.id, req.session.user.id, activity.title, activity.place, activity.outdoor,
+        activity.when, activity.end, activity.done, activity.notes, activity.lat, activity.lng]
+    )
+    res.status(201).json(toActivity(rows[0]))
   } catch (error) {
     next(error)
   }
@@ -473,8 +590,7 @@ app.post('/api/activities', requireLogin, async (req, res, next) => {
 
 app.post('/api/activities/:id', requireLogin, async (req, res, next) => {
   try {
-    const activities = await readJsonFile(ACTIVITIES_FILE)
-    const activity = activities.find(item => String(item.id) === req.params.id)
+    const activity = await getActivityForUser(req.params.id, req.session.user.id)
 
     if (!activity) {
       return res.status(404).json({ message: 'Activity not found.' })
@@ -494,8 +610,16 @@ app.post('/api/activities/:id', requireLogin, async (req, res, next) => {
     activity.title = activity.title.trim()
     activity.when = startDate.toISOString()
     activity.end = endDate.toISOString()
-    await writeJsonFile(ACTIVITIES_FILE, activities)
-    res.json(activity)
+    const { rows } = await database.query(
+      `update planner_private.activities
+          set title = $3, place = $4, outdoor = $5, starts_at = $6, ends_at = $7,
+              done = $8, notes = $9, latitude = $10, longitude = $11
+        where id = $1 and (owner_id is null or owner_id = $2)
+        returning id, title, place, outdoor, starts_at, ends_at, done, notes, latitude, longitude`,
+      [activity.id, req.session.user.id, activity.title, activity.place, Boolean(activity.outdoor),
+        activity.when, activity.end, Boolean(activity.done), activity.notes || '', activity.lat, activity.lng]
+    )
+    res.json(toActivity(rows[0]))
   } catch (error) {
     next(error)
   }
@@ -503,14 +627,16 @@ app.post('/api/activities/:id', requireLogin, async (req, res, next) => {
 
 app.delete('/api/activities/:id', requireLogin, async (req, res, next) => {
   try {
-    const activities = await readJsonFile(ACTIVITIES_FILE)
-    const remainingActivities = activities.filter(item => String(item.id) !== req.params.id)
+    const result = await database.query(
+      `delete from planner_private.activities
+        where id = $1 and (owner_id is null or owner_id = $2)`,
+      [req.params.id, req.session.user.id]
+    )
 
-    if (remainingActivities.length === activities.length) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Activity not found.' })
     }
 
-    await writeJsonFile(ACTIVITIES_FILE, remainingActivities)
     res.sendStatus(204)
   } catch (error) {
     next(error)
@@ -527,13 +653,7 @@ app.post('/api/assignments', requireLogin, async (req, res, next) => {
       return res.status(400).json({ message: 'Assignment name and course are required.' })
     }
 
-    const [courseData, assignmentData] = await Promise.all([
-      readJsonFile(COURSES_FILE),
-      readJsonFile(ASSIGNMENTS_FILE)
-    ])
-    const course = (courseData.Items || []).map(item => item.OrgUnit).find(item =>
-      String(item?.Id) === courseId
-    )
+    const course = await getReferenceCourse(courseId)
 
     if (!course) {
       return res.status(400).json({ message: 'Choose a course from the course list.' })
@@ -548,9 +668,8 @@ app.post('/api/assignments', requireLogin, async (req, res, next) => {
       dueDate = parsedDate.toISOString()
     }
 
-    const courseAssignments = Array.isArray(assignmentData[courseId]) ? assignmentData[courseId] : []
     const assignment = {
-      Id: Date.now(),
+      Id: crypto.randomUUID(),
       Name: name,
       DueDate: dueDate,
       CourseId: courseId,
@@ -559,9 +678,12 @@ app.post('/api/assignments', requireLogin, async (req, res, next) => {
       CreatedAt: new Date().toISOString()
     }
 
-    courseAssignments.push(assignment)
-    assignmentData[courseId] = courseAssignments
-    await writeJsonFile(ASSIGNMENTS_FILE, assignmentData)
+    await database.query(
+      `insert into planner_private.custom_assignments
+        (id, owner_id, course_id, name, due_at, created_at)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [String(assignment.Id), assignment.OwnerId, courseId, assignment.Name, dueDate, assignment.CreatedAt]
+    )
 
     res.status(201).json({
       assignment: {
@@ -591,21 +713,30 @@ app.patch('/api/assignments/:courseId/:id', requireLogin, async (req, res, next)
       dueDate = parsedDate.toISOString()
     }
 
-    const [courseData, assignmentData] = await Promise.all([
-      readJsonFile(COURSES_FILE),
-      readJsonFile(ASSIGNMENTS_FILE)
-    ])
-    const course = (courseData.Items || []).map(item => item.OrgUnit).find(item => String(item?.Id) === courseId)
-    const assignment = (assignmentData[courseId] || []).find(item =>
-      String(item.Id) === id && item.IsCustom && item.OwnerId === req.session.user.id
+    const course = await getReferenceCourse(courseId)
+    if (!course) {
+      return res.status(404).json({ message: 'Your custom assignment could not be found.' })
+    }
+    const { rows } = await database.query(
+      `update planner_private.custom_assignments
+          set name = $4, due_at = $5
+        where course_id = $1 and id = $2 and owner_id = $3
+        returning id, owner_id as "OwnerId", course_id as "CourseId", name as "Name",
+                  due_at as "DueDate", created_at as "CreatedAt"`,
+      [courseId, id, req.session.user.id, name, dueDate]
     )
-    if (!course || !assignment) {
+    const row = rows[0]
+    const assignment = row ? {
+      ...row,
+      Id: row.id,
+      IsCustom: true,
+      DueDate: row.DueDate ? new Date(row.DueDate).toISOString() : null,
+      CreatedAt: row.CreatedAt ? new Date(row.CreatedAt).toISOString() : null
+    } : null
+    if (!assignment) {
       return res.status(404).json({ message: 'Your custom assignment could not be found.' })
     }
 
-    assignment.Name = name
-    assignment.DueDate = dueDate
-    await writeJsonFile(ASSIGNMENTS_FILE, assignmentData)
     res.json({
       assignment: {
         ...assignment,
@@ -997,41 +1128,35 @@ app.post('/api/group-meetings/invitations/:id/cancel', requireLogin, respondToIn
 
 app.post('/api/register', async (req, res) => {
   const { name, email, password } = req.body || {}
+  const cleanUsername = typeof name === 'string' ? name.trim() : ''
+  const cleanEmail = typeof email === 'string' ? email.trim() : ''
+  if (!cleanUsername || !cleanEmail || typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ message: 'Enter a name, a valid email, and a password with at least 8 characters.' })
+  }
 
-  const cleanUsername = name.trim()
-  const cleanEmail = email.trim()
+  const passwordHash = await bcrypt.hash(password, 10)
+  const newUser = {
+    id: crypto.randomUUID(),
+    username: cleanUsername,
+    email: cleanEmail,
+    passwordHash,
+    createdAt: new Date().toISOString()
+  }
 
-  const users = await readUsers()
-
-  const existingUser = users.find(
-    user => user.username === cleanUsername
-  )
-
-  const existingEmail = users.find(
-    user => user.email === cleanEmail
-  )
-
-  if (existingUser || existingEmail) {
+  try {
+    await database.query(
+      `insert into planner_private.app_users (id, username, email, password_hash, created_at)
+       values ($1, $2, $3, $4, $5)`,
+      [newUser.id, newUser.username, newUser.email, newUser.passwordHash, newUser.createdAt]
+    )
+  } catch (error) {
+    if (error.code !== '23505') throw error
     return res.status(409).json({
       message: 'Username or email is already taken'
     })
   }
 
-  const passwordHash = await bcrypt.hash(password, 10)
-
-  const newUser = {
-    id: crypto.randomUUID(),
-    username: cleanUsername,
-    email: cleanEmail,
-    passwordHash: passwordHash,
-    createdAt: new Date().toISOString()
-  }
-
-  users.push(newUser)
-  await writeUsers(users)
-
-
-  res.status(200).json({
+  res.status(201).json({
     message: 'Registration successful',
     user: {
       id: newUser.id,
@@ -1042,12 +1167,17 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body || {}
-
-  const users = await readUsers()
-
-  const user = users.find(
-    item => item.email === email.trim()
+  const cleanEmail = typeof email === 'string' ? email.trim() : ''
+  if (!cleanEmail || typeof password !== 'string') {
+    return res.status(401).json({ message: 'Invalid username or password' })
+  }
+  const { rows } = await database.query(
+    `select id, username, email, password_hash as "passwordHash"
+       from planner_private.app_users
+      where email = $1 limit 1`,
+    [cleanEmail]
   )
+  const user = rows[0]
 
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
     return res.status(401).json({
@@ -1113,6 +1243,13 @@ app.use((req, res) => {
     res.status(404).type('text/plain').send('Not found');
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}/`);
-});
+database.query('select 1').then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}/`)
+  })
+}).catch(error => {
+  console.error('Could not connect to Supabase. Check DATABASE_URL in server/.env.', error.message)
+  database.close().finally(() => {
+    process.exitCode = 1
+  })
+})
