@@ -69,8 +69,6 @@ async function fetchActivities() {
 	} catch (error) {
 		throw new Error(error || 'Could not load activities.')
 	}
-
-
 }
 
 async function createActivity(payload) {
@@ -83,7 +81,6 @@ async function createActivity(payload) {
 	} catch (error) {
 		throw new Error(error || 'Could not save the activity.')
 	}
-
 }
 
 async function updateActivity(id, changes) {
