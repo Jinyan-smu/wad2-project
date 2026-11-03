@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import axios from 'axios'
 import LogoutButton from './LogoutButton.vue'
+import GoogleActivityMap from './GoogleActivityMap.vue'
 
 const route = useRoute()
 
@@ -10,48 +11,6 @@ const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast'
 const GEOCODE_URL = 'https://nominatim.openstreetmap.org/search'
 const API_URL = 'http://localhost:8000/api'
 
-
-const LNG_WEST = 103.58
-const LAT_NORTH = 1.5
-const MAP_SCALE = 2000
-const MAP_W = 1040
-const MAP_H = 600
-
-const project = (lng, lat) => ({ x: (lng - LNG_WEST) * MAP_SCALE, y: (LAT_NORTH - lat) * MAP_SCALE })
-
-const outlinePath = (points) =>
-	points
-		.map(([lng, lat], index) => {
-			const { x, y } = project(lng, lat)
-			return `${index ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`
-		})
-		.join(' ') + ' Z'
-
-const mainIslandPath = outlinePath([
-	[103.636, 1.264], [103.618, 1.296], [103.628, 1.322], [103.655, 1.345], [103.69, 1.385],
-	[103.735, 1.425], [103.768, 1.447], [103.8, 1.455], [103.835, 1.462], [103.87, 1.445],
-	[103.905, 1.42], [103.935, 1.4], [103.96, 1.385], [103.99, 1.395], [104.03, 1.37],
-	[104.04, 1.345], [104.01, 1.32], [103.98, 1.305], [103.94, 1.3], [103.905, 1.295],
-	[103.87, 1.28], [103.85, 1.265], [103.81, 1.262], [103.77, 1.265], [103.73, 1.262],
-	[103.69, 1.255], [103.655, 1.25],
-])
-const sentosaPath = outlinePath([
-	[103.818, 1.248], [103.84, 1.243], [103.862, 1.25], [103.84, 1.258],
-])
-const ubinPath = outlinePath([
-	[103.95, 1.41], [104.0, 1.405], [103.995, 1.422], [103.955, 1.426],
-])
-const catchmentPath = outlinePath([
-	[103.78, 1.36], [103.82, 1.39], [103.84, 1.37], [103.82, 1.34],
-])
-
-const areaLabels = [
-	{ name: 'Woodlands', lng: 103.786, lat: 1.425 },
-	{ name: 'Jurong', lng: 103.7, lat: 1.335 },
-	{ name: 'Orchard', lng: 103.832, lat: 1.3 },
-	{ name: 'Tampines', lng: 103.945, lat: 1.345 },
-	{ name: 'Changi', lng: 103.99, lat: 1.335 },
-].map((label) => ({ ...label, ...project(label.lng, label.lat) }))
 
 const presetPlaces = [
 	{ name: 'NUS', lat: 1.2966, lng: 103.7764 },
@@ -99,8 +58,7 @@ const searchResults = ref([])
 const searching = ref(false)
 const searchMessage = ref('')
 
-const svgEl = ref(null)
-const mapView = ref({ cx: MAP_W / 2, cy: MAP_H / 2, zoom: 1 })
+const googleMapRef = ref(null)
 
 
 async function fetchActivities() {
@@ -325,87 +283,7 @@ const glyphFor = (activity) =>
 	activity.outdoor ? activity.weather.icon || '📍' : '🏠'
 
 
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
-
-const viewBox = computed(() => {
-	const { cx, cy, zoom } = mapView.value
-	const width = MAP_W / zoom
-	const height = MAP_H / zoom
-	return `${cx - width / 2} ${cy - height / 2} ${width} ${height}`
-})
-
-
-const counterScale = computed(() => 1 / mapView.value.zoom)
-
-function pinTransform(activity) {
-	const { x, y } = project(activity.lng, activity.lat)
-	return `translate(${x} ${y}) scale(${counterScale.value})`
-}
-
-const draftTransform = computed(() => {
-	if (form.value.lat === null) return ''
-	const { x, y } = project(form.value.lng, form.value.lat)
-	return `translate(${x} ${y}) scale(${counterScale.value})`
-})
-
-const selectedPin = computed(
-	() => mappableActivities.value.find((item) => item.id === selectedId.value) || null,
-)
-
-function setMapView(cx, cy, zoom) {
-	const level = clamp(zoom, 1, 6)
-	const halfW = MAP_W / level / 2
-	const halfH = MAP_H / level / 2
-	mapView.value = {
-		zoom: level,
-		cx: clamp(cx, halfW, MAP_W - halfW),
-		cy: clamp(cy, halfH, MAP_H - halfH),
-	}
-}
-
-const zoomBy = (factor) =>
-	setMapView(mapView.value.cx, mapView.value.cy, mapView.value.zoom * factor)
-const resetMap = () => setMapView(MAP_W / 2, MAP_H / 2, 1)
-
-
-let drag = null
-let moved = false
-
-function onPointerDown(event) {
-	drag = { x: event.clientX, y: event.clientY, cx: mapView.value.cx, cy: mapView.value.cy }
-	moved = false
-}
-
-function onPointerMove(event) {
-	if (!drag) return
-	const dx = event.clientX - drag.x
-	const dy = event.clientY - drag.y
-	if (!moved && Math.hypot(dx, dy) < 5) return
-	moved = true
-	const unitsPerPixel = MAP_W / mapView.value.zoom / svgEl.value.getBoundingClientRect().width
-	setMapView(drag.cx - dx * unitsPerPixel, drag.cy - dy * unitsPerPixel, mapView.value.zoom)
-}
-
-function onPointerUp() {
-	drag = null
-	setTimeout(() => {
-		moved = false
-	}, 0)
-}
-
-function onMapClick(event) {
-	if (moved || !showForm.value) return
-	const point = svgEl.value.createSVGPoint()
-	point.x = event.clientX
-	point.y = event.clientY
-	const { x, y } = point.matrixTransform(svgEl.value.getScreenCTM().inverse())
-	const lng = LNG_WEST + x / MAP_SCALE
-	const lat = LAT_NORTH - y / MAP_SCALE
-	setFormLocation(`Pinned location (${lat.toFixed(4)}, ${lng.toFixed(4)})`, lat, lng)
-}
-
 function onPinClick(activity) {
-	if (moved) return
 	selectedId.value = activity.id
 	nextTick(() =>
 		document
@@ -414,12 +292,16 @@ function onPinClick(activity) {
 	)
 }
 
+function onGoogleMapClick({ lat, lng }) {
+	if (!showForm.value) return
+	setFormLocation(`Pinned location (${lat.toFixed(4)}, ${lng.toFixed(4)})`, lat, lng)
+}
+
 function focusActivity(activity) {
 	selectedId.value = activity.id
 	if (!hasLocation(activity)) return
 	viewMode.value = 'map'
-	const { x, y } = project(activity.lng, activity.lat)
-	setMapView(x, y, Math.max(mapView.value.zoom, 2.5))
+	nextTick(() => googleMapRef.value?.focusActivity(activity))
 }
 
 
@@ -442,8 +324,8 @@ function onPresetChange(event) {
 	event.target.value = ''
 	if (!preset) return
 	setFormLocation(preset.name, preset.lat, preset.lng)
-	const { x, y } = project(preset.lng, preset.lat)
-	setMapView(x, y, Math.max(mapView.value.zoom, 2))
+	viewMode.value = 'map'
+	nextTick(() => googleMapRef.value?.focusLocation(preset.lat, preset.lng))
 }
 
 async function searchLocation() {
@@ -472,8 +354,8 @@ function pickResult(result) {
 	const lat = Number(result.lat)
 	const lng = Number(result.lon)
 	setFormLocation(result.display_name, lat, lng)
-	const { x, y } = project(lng, lat)
-	setMapView(x, y, Math.max(mapView.value.zoom, 2))
+	viewMode.value = 'map'
+	nextTick(() => googleMapRef.value?.focusLocation(lat, lng))
 }
 
 
@@ -841,63 +723,15 @@ onMounted(async () => {
 
 						<div class="map-layout">
 							<div v-show="viewMode === 'map'" class="map-column">
-								<div class="map-wrap">
-									<svg ref="svgEl" class="activities-map" :class="{ picking: showForm }"
-										:viewBox="viewBox" role="img"
-										aria-label="Map of Singapore showing where your activities are"
-										@pointerdown="onPointerDown" @pointermove="onPointerMove"
-										@pointerup="onPointerUp" @pointerleave="onPointerUp" @click="onMapClick">
-										<rect x="0" y="0" :width="MAP_W" :height="MAP_H" class="sea" />
-										<path :d="mainIslandPath" class="land" />
-										<path :d="sentosaPath" class="land" />
-										<path :d="ubinPath" class="land" />
-										<path :d="catchmentPath" class="park" />
-
-										<text v-for="label in areaLabels" :key="label.name" class="area-label"
-											:x="label.x" :y="label.y" text-anchor="middle"
-											:font-size="12 * counterScale">
-											{{ label.name }}
-										</text>
-
-										<g v-if="form.lat !== null && showForm" :transform="draftTransform"
-											class="draft-pin">
-											<circle r="15" />
-											<circle r="4" class="draft-dot" />
-										</g>
-
-										<g v-for="activity in mappableActivities" :key="activity.id" class="pin" :class="[
-											activity.weather.state,
-											{ selected: activity.id === selectedId, done: activity.done },
-										]" :transform="pinTransform(activity)" tabindex="0" role="button"
-											:aria-label="`${activity.title}, ${activity.weather.verdict}`"
-											@click.stop="onPinClick(activity)"
-											@keydown.enter.prevent="onPinClick(activity)">
-											<circle r="17" />
-											<text class="pin-glyph" text-anchor="middle" dy="0.35em">{{
-												glyphFor(activity) }}</text>
-										</g>
-
-										<g v-if="selectedPin" :transform="pinTransform(selectedPin)"
-											class="pin-label-group">
-											<text class="pin-label" y="-26" text-anchor="middle">{{ selectedPin.title
-											}}</text>
-										</g>
-									</svg>
-
-									<div class="map-controls" role="group" aria-label="Map zoom">
-										<button type="button" class="btn btn-light btn-sm" aria-label="Zoom in"
-											@click="zoomBy(1.6)">+</button>
-										<button type="button" class="btn btn-light btn-sm" aria-label="Zoom out"
-											@click="zoomBy(1 / 1.6)">−</button>
-										<button type="button" class="btn btn-light btn-sm" aria-label="Reset map"
-											@click="resetMap">⟲</button>
-									</div>
-
-									<p v-if="showForm" class="map-hint">Click the map to set the location.</p>
-									<p v-else-if="!loading && !mappableActivities.length" class="map-hint">
-										Activities with a location will appear here.
-									</p>
-								</div>
+								<GoogleActivityMap
+									ref="googleMapRef"
+									:activities="mappableActivities"
+									:selected-id="selectedId"
+									:draft-location="form.lat !== null ? { lat: form.lat, lng: form.lng } : null"
+									:picking="showForm"
+									@activity-selected="onPinClick"
+									@map-click="onGoogleMapClick"
+								/>
 
 								<div class="map-legend">
 									<span><i class="legend-dot good-dot"></i>Good to go</span>
