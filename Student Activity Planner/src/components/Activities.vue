@@ -731,10 +731,8 @@ onMounted(async () => {
 								/>
 
 								<div class="map-legend">
-									<span><i class="legend-dot good-dot"></i>Good to go</span>
-									<span><i class="legend-dot maybe-dot"></i>Bring backup</span>
-									<span><i class="legend-dot bad-dot"></i>Move indoors</span>
-									<span><i class="legend-dot na-dot"></i>Indoor or no forecast</span>
+									<span><i class="legend-dot outdoor-dot"></i>Outdoor</span>
+									<span><i class="legend-dot indoor-dot"></i>Indoor</span>
 									<span v-if="unmappedCount" class="muted">{{ unmappedCount }} without a
 										location</span>
 								</div>
@@ -1150,20 +1148,12 @@ onMounted(async () => {
 	border-radius: 50%;
 }
 
-.good-dot {
-	background: var(--green);
+.outdoor-dot {
+	background: #e5484d;
 }
 
-.maybe-dot {
-	background: #f59f00;
-}
-
-.bad-dot {
-	background: var(--red);
-}
-
-.na-dot {
-	background: var(--brand);
+.indoor-dot {
+	background: #4f5fe8;
 }
 
 /* Activity rows */

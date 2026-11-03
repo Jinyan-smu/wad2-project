@@ -41,12 +41,7 @@ function loadMapsApi() {
 }
 
 function markerColor(activity) {
-  if (activity.done) return '#7b819e'
-  if (!activity.outdoor || activity.weather?.state === 'na') return '#5b5bf0'
-  if (activity.weather?.state === 'good') return '#12b886'
-  if (activity.weather?.state === 'maybe') return '#f59f00'
-  if (activity.weather?.state === 'bad') return '#f03e5f'
-  return '#5b5bf0'
+  return activity.outdoor ? '#e5484d' : '#4f5fe8'
 }
 
 function activityMarkerIcon(activity, selected) {
