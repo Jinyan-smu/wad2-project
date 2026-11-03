@@ -14,6 +14,44 @@
 
     <main class="main">
       <div class="container-xxl dashboard-container">
+        <nav class="d-lg-none mb-3" aria-label="Mobile navigation">
+          <details>
+            <summary class="btn btn-primary d-inline-flex align-items-center gap-2"><span aria-hidden="true">☰</span> Menu</summary>
+            <div class="list-group shadow-sm mt-2">
+              <RouterLink class="list-group-item list-group-item-action active" to="/dashboard">📊 Dashboard</RouterLink>
+              <RouterLink class="list-group-item list-group-item-action" to="/assignments">📝 Assignments</RouterLink>
+              <RouterLink class="list-group-item list-group-item-action" to="/activities">📅 Activities</RouterLink>
+              <a class="list-group-item disabled" aria-disabled="true">🌤️ Weather</a>
+              <RouterLink class="list-group-item list-group-item-action" to="/groupwork">👥 Group Meetings</RouterLink>
+              <div class="list-group-item"><LogoutButton /></div>
+            </div>
+          </details>
+        </nav>
+        <!-- Floating progress + conflicts (below xl only) -->
+        <div class="card shadow-sm sticky-top d-xl-none mb-3">
+          <div class="card-body py-2 px-3">
+            <div class="row g-2 align-items-center">
+              <div class="col-7">
+                <div class="d-flex justify-content-between small fw-semibold">
+                  <span>🏆 Progress</span><span>{{ progress }}%</span>
+                </div>
+                <div class="progress my-1" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
+                  <div class="progress-bar" :style="{ width: progress + '%' }"></div>
+                </div>
+                <small class="text-secondary">{{ doneCount }} of {{ assignments.length }} assignments done</small>
+              </div>
+              <div class="col-5 text-end">
+                <span v-if="!conflicts.length" class="badge rounded-pill text-bg-success">✅ No conflicts</span>
+                <details v-else>
+                  <summary class="badge rounded-pill text-bg-warning">⚠️ {{ conflicts.length }} conflict{{ conflicts.length === 1 ? '' : 's' }}</summary>
+                  <div class="overflow-auto text-start mt-2" style="max-height: 40vh">
+                    <p v-for="c in conflicts" :key="c" class="alert alert-warning py-1 px-2 mb-1 small">{{ c }}</p>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+        </div>
       <!-- Header -->
       <header class="header">
         <div>
@@ -29,9 +67,9 @@
       <p v-else-if="plannerLoading" class="muted">Loading your course work…</p>
 
       <!-- Stats -->
-      <section class="row g-3 mb-4" aria-label="Planner summary">
-        <div class="col-12 col-sm-6 col-lg-3" v-for="s in stats" :key="s.label">
-          <div class="overview-card h-100">
+      <section class="row g-2 g-sm-3 mb-3 mb-sm-4" aria-label="Planner summary">
+        <div class="col-6 col-lg-3" v-for="s in stats" :key="s.label">
+          <div class="overview-card h-100 flex-column flex-sm-row align-items-center text-center text-sm-start">
             <span class="overview-icon" :class="s.iconClass">{{ s.icon }}</span>
             <div>
               <strong>{{ s.value }}</strong>
@@ -157,7 +195,7 @@
           </div>
 
           <!-- Progress -->
-          <div class="card">
+          <div class="card d-none d-xl-block">
             <div class="card-body">
               <h3>🏆 Progress</h3>
               <div class="bar"><div :style="{ width: progress + '%' }"></div></div>
@@ -166,7 +204,7 @@
           </div>
 
           <!-- Conflicts -->
-          <div class="card">
+          <div class="card d-none d-xl-block">
             <div class="card-body">
               <h3>⚠️ Schedule Conflicts</h3>
               <p v-if="!conflicts.length" class="alert alert-success py-2 px-3 mb-0">No conflicts. You're all clear ✅</p>
@@ -437,4 +475,6 @@ const outdoorChecks = computed(() =>
     })
 )
 </script>
+
+
 
