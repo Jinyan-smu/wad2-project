@@ -1447,3 +1447,4 @@ async function joinDemoGroup() {
 @media (min-width: 1001px) { .gm-mobile-nav { display: none !important; } }
 @media (max-width: 700px) { .app .gm-page { padding: 20px 12px; } .gm-source-item { padding: 12px; } }
 </style>
+
