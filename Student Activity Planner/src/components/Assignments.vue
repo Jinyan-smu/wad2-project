@@ -395,6 +395,19 @@
 
 		<main class="main assignments-page">
 			<div class="container-xxl assignments-container">
+				<nav class="d-lg-none mb-3" aria-label="Mobile navigation">
+				  <details>
+				    <summary class="btn btn-primary d-inline-flex align-items-center gap-2"><span aria-hidden="true">☰</span> Menu</summary>
+				    <div class="list-group shadow-sm mt-2">
+				      <RouterLink class="list-group-item list-group-item-action" to="/dashboard">📊 Dashboard</RouterLink>
+				      <RouterLink class="list-group-item list-group-item-action active" to="/assignments">📝 Assignments</RouterLink>
+				      <RouterLink class="list-group-item list-group-item-action" to="/activities">📅 Activities</RouterLink>
+				      <a class="list-group-item disabled" aria-disabled="true">🌤️ Weather</a>
+				      <RouterLink class="list-group-item list-group-item-action" to="/groupwork">👥 Group Meetings</RouterLink>
+				      <div class="list-group-item"><LogoutButton /></div>
+				    </div>
+				  </details>
+				</nav>
 			<header class="header assignments-header">
 				<div>
 					<p class="eyebrow">STAY ON TOP OF YOUR WORK</p>
@@ -470,9 +483,9 @@
 				</div>
 			</section>
 
-			<section class="row g-3 mb-4" aria-label="Course work summary">
-				<div class="col-12 col-sm-6 col-xl-4">
-					<div class="overview-card h-100">
+			<section class="row g-2 g-sm-3 mb-3 mb-sm-4" aria-label="Course work summary">
+				<div class="col-4">
+					<div class="overview-card h-100 flex-column flex-sm-row align-items-center text-center text-sm-start">
 						<span class="overview-icon assignment-icon">📝</span>
 						<div>
 							<strong>{{ filteredAssignments.length }}</strong
@@ -480,8 +493,8 @@
 						</div>
 					</div>
 				</div>
-				<div class="col-12 col-sm-6 col-xl-4">
-					<div class="overview-card h-100">
+				<div class="col-4">
+					<div class="overview-card h-100 flex-column flex-sm-row align-items-center text-center text-sm-start">
 						<span class="overview-icon quiz-icon">✏️</span>
 						<div>
 							<strong>{{ filteredQuizzes.length }}</strong
@@ -489,8 +502,8 @@
 						</div>
 					</div>
 				</div>
-				<div class="col-12 col-sm-6 col-xl-4">
-					<div class="overview-card h-100">
+				<div class="col-4">
+					<div class="overview-card h-100 flex-column flex-sm-row align-items-center text-center text-sm-start">
 						<span class="overview-icon calendar-icon">📅</span>
 						<div>
 							<strong>{{ monthEventCount }}</strong
@@ -1302,3 +1315,4 @@
 	}
 }
 </style>
+
