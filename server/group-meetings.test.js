@@ -134,7 +134,7 @@ test('a member\'s busy time booked in another group still counts', () => {
   )
 })
 
-test('an unshared or incomplete calendar blocks the calculation instead of counting as free', () => {
+test('an incomplete calendar blocks the calculation, but sharing is no longer required', () => {
   const window = windowFor()
 
   const unshared = gm.evaluateReadiness({
@@ -149,8 +149,9 @@ test('an unshared or incomplete calendar blocks the calculation instead of count
     windowEnd: window.end,
   })
 
-  assert.equal(unshared.ready, false)
-  assert.equal(unshared.blockers[0].reason, 'not_shared')
+  // Sharing is no longer part of the gate: a disabled share does not block.
+  assert.equal(unshared.ready, true)
+  assert.deepEqual(unshared.blockers, [])
 
   const incomplete = gm.evaluateReadiness({
     group: DEMO_GROUP,
@@ -182,7 +183,7 @@ test('coverage shorter than the requested range blocks the calculation', () => {
   assert.equal(readiness.blockers[0].reason, 'coverage_partial')
 })
 
-test('a complete, fully shared group passes the readiness gate', () => {
+test('a group with complete calendars passes the readiness gate', () => {
   const window = windowFor({ toDate: '2026-10-27' })
   const readiness = gm.evaluateReadiness({
     group: DEMO_GROUP,
