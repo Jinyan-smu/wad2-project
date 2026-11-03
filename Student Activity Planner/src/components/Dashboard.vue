@@ -129,13 +129,30 @@
         <div class="content-column col-12 col-xl-4">
           <div class="card">
             <div class="card-body">
-              <h3>📣 Course announcements</h3>
-              <p v-if="!announcements.length" class="muted mb-0">No announcements yet.</p>
-              <article v-for="announcement in announcements.slice(0, 5)" :key="announcement.Id" class="mb-3">
-                <strong>{{ announcement.Title }}</strong>
-                <small class="d-block muted">{{ announcement.CourseName }} · {{ new Date(announcement.PostedAt).toLocaleDateString() }}</small>
-                <p class="mb-0">{{ announcement.Body }}</p>
-              </article>
+              <div class="section-heading">
+                <div>
+                  <h3 class="mb-0">📣 Course announcements</h3>
+                  <small class="muted">{{ announcements.length }} notices</small>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary"
+                  :aria-expanded="announcementsOpen"
+                  aria-controls="dashboard-course-announcements"
+                  @click="announcementsOpen = !announcementsOpen"
+                >
+                  {{ announcementsOpen ? 'Hide' : 'Show' }}
+                  <span aria-hidden="true">{{ announcementsOpen ? '▲' : '▼' }}</span>
+                </button>
+              </div>
+              <div v-if="announcementsOpen" id="dashboard-course-announcements" class="mt-3">
+                <p v-if="!announcements.length" class="muted mb-0">No announcements yet.</p>
+                <article v-for="announcement in announcements.slice(0, 5)" :key="announcement.Id" class="mb-3">
+                  <strong>{{ announcement.Title }}</strong>
+                  <small class="d-block muted">{{ announcement.CourseName }} · {{ new Date(announcement.PostedAt).toLocaleDateString() }}</small>
+                  <p class="mb-0">{{ announcement.Body }}</p>
+                </article>
+              </div>
             </div>
           </div>
 
@@ -205,6 +222,7 @@ const assignments = ref([])
 const quizzes = ref([])
 const activities = ref([])
 const announcements = ref([])
+const announcementsOpen = ref(false)
 
 const fetchUserData = async () => {
   try {
