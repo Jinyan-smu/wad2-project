@@ -9,6 +9,7 @@
       <RouterLink to="/activities">📅 Activities</RouterLink>
       <a>🌤️ Weather</a>
       <RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
+      <LogoutButton />
     </aside>
 
     <main class="main">
@@ -126,6 +127,18 @@
 
         <!-- RIGHT -->
         <div class="content-column col-12 col-xl-4">
+          <div class="card">
+            <div class="card-body">
+              <h3>📣 Course announcements</h3>
+              <p v-if="!announcements.length" class="muted mb-0">No announcements yet.</p>
+              <article v-for="announcement in announcements.slice(0, 5)" :key="announcement.Id" class="mb-3">
+                <strong>{{ announcement.Title }}</strong>
+                <small class="d-block muted">{{ announcement.CourseName }} · {{ new Date(announcement.PostedAt).toLocaleDateString() }}</small>
+                <p class="mb-0">{{ announcement.Body }}</p>
+              </article>
+            </div>
+          </div>
+
           <!-- Progress -->
           <div class="card">
             <div class="card-body">
@@ -183,6 +196,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import axios from 'axios'
+import LogoutButton from './LogoutButton.vue'
 
 const userName = ref('there')
 const plannerLoading = ref(true)
@@ -190,6 +204,7 @@ const plannerError = ref('')
 const assignments = ref([])
 const quizzes = ref([])
 const activities = ref([])
+const announcements = ref([])
 
 const fetchUserData = async () => {
   try {
@@ -226,6 +241,7 @@ const fetchPlannerData = async () => {
 
     assignments.value = (data.assignments || []).map(item => toDashboardItem(item, 'assignment'))
     quizzes.value = (data.quizzes || []).map(item => toDashboardItem(item, 'quiz'))
+    announcements.value = data.announcements || []
     activities.value = (data.activities || []).map(activity => ({
       ...activity,
       when: new Date(activity.when),

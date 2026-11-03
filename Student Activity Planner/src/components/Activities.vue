@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import axios from 'axios'
+import LogoutButton from './LogoutButton.vue'
 
 const route = useRoute()
 
@@ -633,6 +634,7 @@ onMounted(async () => {
 			<RouterLink to="/activities" class="active">📅 Activities</RouterLink>
 			<a>🌤️ Weather</a>
 			<RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
+			<LogoutButton />
 		</aside>
 
 		<main class="main activities-page">

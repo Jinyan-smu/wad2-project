@@ -2,6 +2,7 @@
   import { computed, onMounted, ref } from 'vue'
   import { RouterLink, useRoute } from 'vue-router'
   import axios from 'axios'
+  import LogoutButton from './LogoutButton.vue'
 
   const API_URL = 'http://localhost:8000/api'
   const route = useRoute()
@@ -389,6 +390,7 @@
 			<RouterLink to="/activities">📅 Activities</RouterLink>
 			<a>🌤️ Weather</a>
 			<RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
+			<LogoutButton />
 		</aside>
 
 		<main class="main assignments-page">

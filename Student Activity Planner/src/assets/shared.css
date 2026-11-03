@@ -19,6 +19,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: system-
 .app { display: flex; min-height: 100vh; }
 .app .sidebar {
   width: 230px; padding: 24px 16px; color: #fff; position: sticky; top: 0; height: 100vh; box-sizing: border-box;
+  display: flex; flex-direction: column;
   background: linear-gradient(170deg, #3b3bd8, #8b5cf6);
 }
 .app .sidebar h2 { font-size: 1.2rem; margin: 0 0 28px 8px; }

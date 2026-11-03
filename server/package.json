@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "test": "node --test",
+    "seed:mock-elearn": "node seed-mock-elearn.js",
     "start": "nodemon server.js",
     "dev": "nodemon server.js"
   },

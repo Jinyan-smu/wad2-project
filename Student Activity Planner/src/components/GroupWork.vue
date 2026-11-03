@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import axios from 'axios'
+import LogoutButton from './LogoutButton.vue'
 
 /*
  * AI-assisted implementation of the two behaviours this screen was missing:
@@ -709,6 +710,7 @@ async function joinDemoGroup() {
         <span v-if="pendingCount" class="gm-bell-dot" aria-hidden="true"></span>
         <span class="gm-sr-only">{{ pendingCount }} awaiting response</span>
       </button>
+      <LogoutButton />
     </aside>
 
     <main class="main gm-page">

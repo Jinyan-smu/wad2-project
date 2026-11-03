@@ -68,37 +68,45 @@ function createSession(req, user) {
 
 
 
-async function listReferenceCourses() {
+async function listReferenceCourses(userId) {
   const { rows } = await database.query(
-    `select source
-       from planner_private.reference_courses
-      order by sort_order`
+    `select c.source
+       from planner_private.reference_courses c
+       join planner_private.course_enrollments e on e.course_id = c.course_id
+      where e.user_id = $1
+      order by c.sort_order`, [userId]
   )
   return rows.map(row => row.source)
 }
 
-async function getReferenceCourse(courseId) {
+async function getReferenceCourse(courseId, userId) {
   const { rows } = await database.query(
-    `select source from planner_private.reference_courses where course_id = $1`,
-    [String(courseId)]
+    `select c.source from planner_private.reference_courses c
+      join planner_private.course_enrollments e on e.course_id = c.course_id
+      where c.course_id = $1 and e.user_id = $2`,
+    [String(courseId), userId]
   )
   return rows[0]?.source || null
 }
 
-async function listReferenceAssignments() {
+async function listReferenceAssignments(userId) {
   const { rows } = await database.query(
     `select course_id, source
-       from planner_private.reference_assignments
-      order by course_id, sort_order`
+       from planner_private.reference_assignments a
+       join planner_private.course_enrollments e using (course_id)
+      where e.user_id = $1
+      order by course_id, sort_order`, [userId]
   )
   return rows.map(row => ({ ...row.source, CourseId: row.course_id }))
 }
 
-async function listReferenceQuizzes() {
+async function listReferenceQuizzes(userId) {
   const { rows } = await database.query(
     `select course_id, source
-       from planner_private.reference_quizzes
-      order by course_id, sort_order`
+       from planner_private.reference_quizzes q
+       join planner_private.course_enrollments e using (course_id)
+      where e.user_id = $1
+      order by course_id, sort_order`, [userId]
   )
   return rows.map(row => ({ ...row.source, CourseId: row.course_id }))
 }
@@ -106,8 +114,10 @@ async function listReferenceQuizzes() {
 async function courseworkItemExists(type, courseId, itemId, userId) {
   const table = type === 'assignment' ? 'reference_assignments' : 'reference_quizzes'
   const { rows } = await database.query(
-    `select 1 from planner_private.${table} where course_id = $1 and item_id = $2 limit 1`,
-    [String(courseId), String(itemId)]
+    `select 1 from planner_private.${table} i
+      join planner_private.course_enrollments e using (course_id)
+      where i.course_id = $1 and i.item_id = $2 and e.user_id = $3 limit 1`,
+    [String(courseId), String(itemId), userId]
   )
   if (rows.length) return true
   if (type !== 'assignment') return false
@@ -469,15 +479,25 @@ function requireLogin(req, res, next) {
 app.get('/api/planner-data', requireLogin, async (req, res, next) => {
   try {
     const [courses, referenceAssignments, referenceQuizzes, activities, customAssignments, userProgress] = await Promise.all([
-      listReferenceCourses(),
-      listReferenceAssignments(),
-      listReferenceQuizzes(),
+      listReferenceCourses(req.session.user.id),
+      listReferenceAssignments(req.session.user.id),
+      listReferenceQuizzes(req.session.user.id),
       listActivities(req.session.user.id),
       listCustomAssignments(req.session.user.id),
       getCourseworkProgress(req.session.user.id)
     ])
 
     const courseNames = new Map(courses.map(course => [String(course.Id), course.Name]))
+    const { rows: announcements } = await database.query(
+      `select a.announcement_id as "Id", a.title as "Title", a.body as "Body",
+              a.posted_at as "PostedAt", a.course_id as "CourseId", c.name as "CourseName"
+         from planner_private.reference_announcements a
+         join planner_private.course_enrollments e on e.course_id = a.course_id
+         join planner_private.reference_courses c on c.course_id = a.course_id
+        where e.user_id = $1
+        order by a.posted_at desc, a.sort_order
+        limit 30`, [req.session.user.id]
+    )
     const assignments = [...referenceAssignments, ...customAssignments].map(item => {
       const courseId = String(item.CourseId)
       return {
@@ -517,6 +537,7 @@ app.get('/api/planner-data', requireLogin, async (req, res, next) => {
       courses: courses.map(({ Id, Name, Code }) => ({ Id, Name, Code })),
       assignments,
       quizzes,
+      announcements,
       activities: [...(Array.isArray(activities) ? activities : []), ...meetingActivities]
     })
   } catch (error) {
@@ -653,7 +674,7 @@ app.post('/api/assignments', requireLogin, async (req, res, next) => {
       return res.status(400).json({ message: 'Assignment name and course are required.' })
     }
 
-    const course = await getReferenceCourse(courseId)
+    const course = await getReferenceCourse(courseId, req.session.user.id)
 
     if (!course) {
       return res.status(400).json({ message: 'Choose a course from the course list.' })
@@ -713,7 +734,7 @@ app.patch('/api/assignments/:courseId/:id', requireLogin, async (req, res, next)
       dueDate = parsedDate.toISOString()
     }
 
-    const course = await getReferenceCourse(courseId)
+    const course = await getReferenceCourse(courseId, req.session.user.id)
     if (!course) {
       return res.status(404).json({ message: 'Your custom assignment could not be found.' })
     }
