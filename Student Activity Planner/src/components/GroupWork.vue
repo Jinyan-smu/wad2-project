@@ -87,8 +87,6 @@ const selectedGroup = computed(
   () => groups.value.find((group) => group.id === selectedGroupId.value) || null,
 )
 const members = computed(() => selectedGroup.value?.members || [])
-const sharedCount = computed(() => members.value.filter((member) => member.shared).length)
-const viewerMember = computed(() => members.value.find((member) => member.isViewer) || null)
 const incomingInvitations = computed(() => state.value?.incomingInvitations || [])
 const pendingCount = computed(
   () => incomingInvitations.value.filter((invitation) => invitation.status === 'pending').length,
@@ -155,9 +153,7 @@ const groupMeetings = computed(
   () => (state.value?.meetings || []).filter((meeting) => meeting.groupId === selectedGroupId.value),
 )
 const canJoinDemo = computed(() => state.value?.demo?.canJoin === true)
-const matchReady = computed(
-  () => members.value.length > 0 && sharedCount.value === members.value.length,
-)
+const matchReady = computed(() => members.value.length > 0)
 // Group meetings are already listed above; the read-only source list shows the
 // rest of the planner's activities only.
 const sourceActivities = computed(() =>
@@ -234,7 +230,6 @@ function formatDay(dateText) {
 }
 
 const BLOCKER_LABELS = {
-  not_shared: 'Has not shared availability',
   schedule_incomplete: 'Calendar not complete',
   coverage_partial: 'Calendar coverage too short',
   unknown_member: 'No member profile',
@@ -584,7 +579,7 @@ async function respond(invitation, action) {
   try {
     await client.post(`/group-meetings/invitations/${invitation.id}/${action}`)
     const labels = {
-      accept: `You joined ${invitation.groupName}. Membership does not share your calendar - turn on sharing when you are ready.`,
+      accept: `You joined ${invitation.groupName}.`,
       decline: `You declined the invitation to ${invitation.groupName}.`,
       cancel: `Invitation to ${invitation.toUserName} cancelled.`,
     }
@@ -630,30 +625,6 @@ async function sendInvitation() {
   }
 }
 
-async function toggleSharing() {
-  actionError.value = ''
-  actionNotice.value = ''
-  if (!selectedGroupId.value) return
-
-  const nextValue = viewerMember.value?.shared !== true
-  busyAction.value = 'share'
-  try {
-    await client.patch('/group-meetings/shares', {
-      groupId: selectedGroupId.value,
-      enabled: nextValue,
-    })
-    actionNotice.value = nextValue
-      ? 'Your free/busy time is now shared with this group.'
-      : 'Sharing stopped. Matching will treat your availability as unknown.'
-    await loadGroupState()
-    matchResult.value = null
-  } catch (error) {
-    actionError.value = messageOf(error)
-  } finally {
-    busyAction.value = ''
-  }
-}
-
 async function createGroup() {
   newGroupError.value = ''
   actionError.value = ''
@@ -669,7 +640,7 @@ async function createGroup() {
     newGroupName.value = ''
     await loadGroupState()
     selectedGroupId.value = data.group.id
-    actionNotice.value = `${name} created. Invite teammates, then turn on sharing when you are ready.`
+    actionNotice.value = `${name} created. Invite teammates to get started.`
   } catch (error) {
     newGroupError.value = messageOf(error)
   } finally {
@@ -684,7 +655,7 @@ async function joinDemoGroup() {
     const { data } = await client.post('/group-meetings/demo-group/join')
     await loadGroupState()
     selectedGroupId.value = data.group.id
-    actionNotice.value = 'You joined the demo group and shared your (empty) calendar with it.'
+    actionNotice.value = 'You joined the demo group.'
   } catch (error) {
     actionError.value = messageOf(error)
   } finally {
@@ -777,7 +748,7 @@ async function joinDemoGroup() {
               <p v-if="newGroupError" class="text-danger gm-help mt-2 mb-0" role="alert">{{ newGroupError }}</p>
               <p v-if="canJoinDemo" class="gm-help mt-3 mb-0">
                 The demo group comes with three seeded members and sample calendars, so matching can be
-                tried immediately. Joining it shares your (currently empty) calendar with that group.
+                tried immediately.
               </p>
             </div>
           </section>
@@ -792,17 +763,40 @@ async function joinDemoGroup() {
                 </div>
               </div>
               <div class="col-12 col-sm-6 col-xl-4">
-                <div class="gm-summary h-100">
-                  <span>Members in this group</span>
-                  <strong>{{ members.length }}</strong>
-                  <small>{{ selectedGroup?.isOwner ? 'You own this group' : 'Member' }}</small>
+                <!-- Desktop: plain summary box (names are in the Members card) -->
+                <div class="d-none d-xl-block h-100">
+                  <div class="gm-summary h-100">
+                    <span>Members in this group</span>
+                    <strong>{{ members.length }}</strong>
+                    <small>{{ selectedGroup?.isOwner ? 'You own this group' : 'Member' }}</small>
+                  </div>
+                </div>
+                <!-- Mobile: tap the box to show the member names -->
+                <div class="d-xl-none h-100">
+                  <details class="gm-summary h-100">
+                    <summary class="d-block">
+                      <span class="d-block">Members in this group</span>
+                      <strong class="d-block">{{ members.length }}</strong>
+                      <small class="d-block">{{ selectedGroup?.isOwner ? 'You own this group' : 'Member' }} ▾</small>
+                    </summary>
+                    <ul class="list-unstyled border-top mt-3 pt-2 mb-0">
+                      <li v-for="member in members" :key="member.id" class="py-1">
+                        <strong>{{ member.name }}</strong>
+                        <small class="d-block">
+                          <span v-if="member.isOwner">Owner</span>
+                          <span v-if="member.isViewer"><span v-if="member.isOwner"> · </span>You</span>
+                          <span v-if="member.scheduleStatus !== 'complete'"> · Calendar incomplete</span>
+                        </small>
+                      </li>
+                    </ul>
+                  </details>
                 </div>
               </div>
               <div class="col-12 col-sm-6 col-xl-4">
                 <div class="gm-summary h-100">
                   <span>Meetings booked</span>
                   <strong>{{ groupMeetings.length }}</strong>
-                  <small>{{ matchReady ? 'Matching can run' : 'Matching blocked until all share' }}</small>
+                  <small>{{ matchReady ? 'Matching can run' : 'No members yet' }}</small>
                 </div>
               </div>
             </section>
@@ -931,12 +925,6 @@ async function joinDemoGroup() {
                         <button type="submit" class="btn btn-primary w-100" :disabled="matching">
                           {{ matching ? 'Searching...' : 'Find common time' }}
                         </button>
-                      </div>
-                      <div v-if="!matchReady" class="col-12">
-                        <p class="gm-help mt-1 mb-0">
-                          {{ members.length - sharedCount }} of {{ members.length }} members have not shared
-                          availability, so the search will report unknown availability.
-                        </p>
                       </div>
                     </form>
 
@@ -1138,12 +1126,10 @@ async function joinDemoGroup() {
               </div>
 
               <div class="col-12 col-xl-4 gm-column">
-                <!-- Members and sharing -->
-                <section class="card gm-card" aria-labelledby="gm-members-title">
+                <!-- Members -->
+                <section class="card gm-card d-none d-xl-block" aria-labelledby="gm-members-title">
                   <div class="card-body">
-                    <h2 id="gm-members-title">Members and sharing</h2>
-                    <p class="gm-help">{{ sharedCount }} of {{ members.length }} members share free/busy time
-                      with this group. Event titles are never shared.</p>
+                    <h2 id="gm-members-title">Members</h2>
                     <div v-for="member in members" :key="member.id" class="gm-member">
                       <div class="gm-member-info">
                         <strong>{{ member.name }}</strong>
@@ -1153,20 +1139,7 @@ async function joinDemoGroup() {
                           <span v-if="member.scheduleStatus !== 'complete'"> · Calendar incomplete</span>
                         </small>
                       </div>
-                      <span class="badge rounded-pill"
-                        :class="member.shared ? 'gm-invitation-accepted' : 'gm-unknown'">
-                        {{ member.shared ? 'Shared' : 'Not shared' }}
-                      </span>
                     </div>
-                    <button type="button" class="btn mt-3"
-                      :class="viewerMember?.shared ? 'btn-outline-secondary' : 'btn-primary'"
-                      :disabled="busyAction === 'share'" @click="toggleSharing">
-                      {{ viewerMember?.shared ? 'Stop sharing my availability' : 'Share my availability' }}
-                    </button>
-                    <p class="gm-help mt-2 mb-0">
-                      Only free/busy intervals are shared. You can stop sharing at any time and matching
-                      will treat your calendar as unknown again.
-                    </p>
                   </div>
                 </section>
 
@@ -1183,7 +1156,7 @@ async function joinDemoGroup() {
                       {{ busyAction === 'create' ? 'Creating...' : 'Create group' }}
                     </button>
                     <p v-if="newGroupError" class="text-danger gm-help mt-2 mb-0" role="alert">{{ newGroupError }}</p>
-                    <p class="gm-help mt-2 mb-0">You become the owner. Sharing stays off until you turn it on.</p>
+                    <p class="gm-help mt-2 mb-0">You become the owner of the group.</p>
                   </div>
                 </section>
 
@@ -1288,8 +1261,7 @@ async function joinDemoGroup() {
       </article>
 
       <p class="gm-help mt-3 mb-0">
-        Accepting adds you to the group but does not share your calendar. Sharing is a
-        separate switch in "Members and sharing".
+        Accepting adds you to the group.
       </p>
     </div>
 
