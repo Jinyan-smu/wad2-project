@@ -231,9 +231,10 @@ function alignUp(value, origin, step) {
  * ------------------------------------------------------------------ */
 
 /**
- * The consent gate. Matching is only meaningful when every selected member has
- * (a) shared availability with this group, (b) a complete schedule, and
- * (c) calendar coverage that actually spans the requested range.
+ * The readiness gate. Matching is only meaningful when every selected member has
+ * (a) a complete schedule and (b) calendar coverage that actually spans the
+ * requested range. Sharing is no longer a separate step: group members are
+ * always included in matching, so there is no "not shared" blocker.
  *
  * Missing information is UNKNOWN, never FREE, so any failed check blocks the
  * whole calculation instead of silently treating the gap as free time.
@@ -251,20 +252,6 @@ function evaluateReadiness({ group, members, shares, windowStart, windowEnd }) {
         name,
         reason: 'unknown_member',
         message: `${name} has no profile in this group yet.`,
-      })
-      continue
-    }
-
-    const share = (shares || []).find(
-      (item) => item.groupId === group.id && item.userId === userId,
-    )
-
-    if (!share || share.enabled !== true) {
-      blockers.push({
-        userId,
-        name,
-        reason: 'not_shared',
-        message: `${name} has not shared availability with this group.`,
       })
       continue
     }
