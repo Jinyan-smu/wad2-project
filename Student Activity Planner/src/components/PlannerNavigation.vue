@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import LogoutButton from './LogoutButton.vue'
-import PlannerIcon from './PlannerIcon.vue'
+import PlannerIcon from '@/components/icons/PlannerIcon.vue'
 
 defineProps({
   active: { type: String, required: true },

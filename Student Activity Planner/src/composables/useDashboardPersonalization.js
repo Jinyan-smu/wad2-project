@@ -98,7 +98,7 @@ export function recordCourseworkCompletion(userId, item, done, at = Date.now()) 
   }
 }
 
-export function createDashboardPersonalization() {
+export function useDashboardPersonalization() {
   const state = reactive({
     ...defaults(),
     accountId: null,

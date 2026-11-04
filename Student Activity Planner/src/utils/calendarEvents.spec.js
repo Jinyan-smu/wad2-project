@@ -8,7 +8,7 @@ import {
   isCalendarDate,
   layoutCalendarDay,
   shiftCalendarDate,
-} from '../utils/calendarEvents'
+} from './calendarEvents'
 
 describe('Overall calendar event model', () => {
   it('uses Singapore dates independently of the browser timezone', () => {

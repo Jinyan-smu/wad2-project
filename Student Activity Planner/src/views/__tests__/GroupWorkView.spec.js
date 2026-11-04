@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import axios from 'axios'
-import GroupWork from '../components/GroupWork.vue'
+import GroupWork from '@/views/GroupWorkView.vue'
 
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }))
 const mutationPost = vi.fn()

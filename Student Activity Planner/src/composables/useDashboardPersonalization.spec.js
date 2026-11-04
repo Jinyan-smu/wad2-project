@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  createDashboardPersonalization,
+  useDashboardPersonalization,
   dashboardStorageKey,
   recordCourseworkCompletion,
-} from '../utils/dashboardPersonalization'
+} from './useDashboardPersonalization'
 
 let stores = []
 const item = (key = 'assignment:1:1') => ({
@@ -13,7 +13,7 @@ const item = (key = 'assignment:1:1') => ({
   done: false,
 })
 function create(user = 'alex') {
-  const store = createDashboardPersonalization()
+  const store = useDashboardPersonalization()
   stores.push(store)
   store.loadAccount(user)
   return store

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import axios from 'axios'
-import Calendar from '../components/Calendar.vue'
+import Calendar from '@/views/CalendarView.vue'
 
 vi.mock('axios', () => ({ default: { get: vi.fn() } }))
 let wrapper

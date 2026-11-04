@@ -2,17 +2,17 @@
 import { ref, computed, onMounted, onUnmounted, watch, toRef, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
 import axios from 'axios'
-import PlannerNavigation from './PlannerNavigation.vue'
-import PlannerIcon from './PlannerIcon.vue'
-import PlannerCompanion from './PlannerCompanion.vue'
-import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
-import DashboardCoursework from './DashboardCoursework.vue'
-import DashboardWeekSelector from './DashboardWeekSelector.vue'
-import { createDashboardPersonalization } from '../utils/dashboardPersonalization'
-import { getTaskUrgency } from '../utils/taskUrgency'
+import PlannerNavigation from '@/components/PlannerNavigation.vue'
+import PlannerIcon from '@/components/icons/PlannerIcon.vue'
+import PlannerCompanion from '@/components/PlannerCompanion.vue'
+import TaskUrgencyBadge from '@/components/TaskUrgencyBadge.vue'
+import DashboardCoursework from '@/components/DashboardCoursework.vue'
+import DashboardWeekSelector from '@/components/DashboardWeekSelector.vue'
+import { useDashboardPersonalization } from '@/composables/useDashboardPersonalization'
+import { getTaskUrgency } from '@/utils/taskUrgency'
 
 const API_URL = 'http://localhost:8000/api'
-const personal = createDashboardPersonalization()
+const personal = useDashboardPersonalization()
 const userName = ref('there')
 const plannerLoading = ref(true)
 const plannerError = ref('')

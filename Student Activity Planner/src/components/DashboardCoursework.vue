@@ -1,9 +1,9 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import PlannerIcon from './PlannerIcon.vue'
+import PlannerIcon from '@/components/icons/PlannerIcon.vue'
 import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
-import { getTaskUrgency } from '../utils/taskUrgency'
+import { getTaskUrgency } from '@/utils/taskUrgency'
 
 const props = defineProps({
   items: { type: Array, required: true },

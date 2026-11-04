@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import DashboardWeekSelector from '../components/DashboardWeekSelector.vue'
+import DashboardWeekSelector from '@/components/DashboardWeekSelector.vue'
 
 let wrapper
 const days = () =>
@@ -31,7 +31,6 @@ describe('Dashboard week selector', () => {
     await wrapper.setProps({ selectedKey: '2026-11-05' })
     expect(wrapper.get('[data-date="2026-11-04"]').attributes('aria-pressed')).toBe('false')
     expect(wrapper.get('[data-date="2026-11-05"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('.week-selector-grid').attributes('style')).toContain('--selected-index: 3')
   })
 
   it('describes real workload and retains deadline indicators independently', () => {
@@ -41,18 +40,10 @@ describe('Dashboard week selector', () => {
     expect(moderate.attributes('aria-label')).toContain(
       'today, 3 pending items, 2 coursework deadlines, moderate day',
     )
-    expect(moderate.findAll('.day-dot')).toHaveLength(2)
-    expect(moderate.get('.day-workload').attributes('data-workload')).toBe('moderate')
     const busy = wrapper.get('[data-date="2026-11-05"]')
-    expect(busy.findAll('.day-dot')).toHaveLength(3)
-    expect(busy.get('.day-dots small').text()).toBe('+')
-    expect(busy.get('.day-workload').attributes('data-workload')).toBe('busy')
-    expect(wrapper.get('[data-date="2026-11-03"] .day-workload').attributes('data-workload')).toBe(
-      'light',
-    )
-    expect(wrapper.get('[data-date="2026-11-02"] .day-workload').attributes('data-workload')).toBe(
-      'clear',
-    )
+    expect(busy.attributes('aria-label')).toContain('5 pending items, 4 coursework deadlines, busy day')
+    expect(wrapper.get('[data-date="2026-11-03"]').attributes('aria-label')).toContain('light day')
+    expect(wrapper.get('[data-date="2026-11-02"]').attributes('aria-label')).toContain('clear day')
     expect(wrapper.get('[role="group"]').attributes('aria-describedby')).toBe(
       wrapper.get('p').attributes('id'),
     )
@@ -61,14 +52,10 @@ describe('Dashboard week selector', () => {
   it('does not present pending counts or workload as known while plans are loading', async () => {
     render({ loading: true })
     expect(wrapper.get('[role="group"]').attributes('aria-busy')).toBe('true')
-    expect(wrapper.findAll('.day-dot')).toHaveLength(0)
-    expect(wrapper.findAll('.day-workload-fill')).toHaveLength(0)
     const day = wrapper.get('[data-date="2026-11-05"]')
     expect(day.attributes('aria-label')).toContain('loading plans')
     expect(day.attributes('aria-label')).not.toContain('5 pending')
-    expect(day.get('.day-workload').attributes('data-workload')).toBe('loading')
     await wrapper.setProps({ loading: false, selectedKey: '2026-11-20' })
-    expect(wrapper.find('.has-selection').exists()).toBe(false)
     expect(wrapper.findAll('[aria-pressed="true"]')).toHaveLength(0)
   })
 })

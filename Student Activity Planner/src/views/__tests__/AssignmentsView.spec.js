@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import axios from 'axios'
-import Assignments from '../components/Assignments.vue'
-import { dashboardStorageKey } from '../utils/dashboardPersonalization'
+import Assignments from '@/views/AssignmentsView.vue'
+import { dashboardStorageKey } from '@/composables/useDashboardPersonalization'
 
 vi.mock('axios', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn() } }))
 let wrapper

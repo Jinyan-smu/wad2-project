@@ -1,11 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import Register from '@/components/Register.vue'
-import Login from '@/components/Login.vue'
-import Dashboard from '@/components/Dashboard.vue'
-import Calendar from '@/components/Calendar.vue'
-import Assignments from '@/components/Assignments.vue'
-import Activities from '@/components/Activities.vue'
-import GroupWork from '@/components/GroupWork.vue'
+import RegisterView from '@/views/RegisterView.vue'
+import LoginView from '@/views/LoginView.vue'
+import DashboardView from '@/views/DashboardView.vue'
+import CalendarView from '@/views/CalendarView.vue'
+import AssignmentsView from '@/views/AssignmentsView.vue'
+import ActivitiesView from '@/views/ActivitiesView.vue'
+import GroupWorkView from '@/views/GroupWorkView.vue'
 import axios from 'axios'
 
 const router = createRouter({
@@ -22,46 +22,46 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      component: Login,
+      component: LoginView,
     },
     {
       path: '/login',
       name: 'Login',
-      component: Login,
+      component: LoginView,
     },
     {
       path: '/register',
       name: 'Register',
-      component: Register,
+      component: RegisterView,
     },
     {
       path: '/dashboard',
       name: 'Dashboard',
-      component: Dashboard,
+      component: DashboardView,
       meta: { requiresAuth: true },
     },
     {
       path: '/calendar',
       name: 'Calendar',
-      component: Calendar,
+      component: CalendarView,
       meta: { requiresAuth: true },
     },
     {
       path: '/assignments',
       name: 'Assignments',
-      component: Assignments,
+      component: AssignmentsView,
       meta: { requiresAuth: true },
     },
     {
       path: '/activities',
       name: 'Activities',
-      component: Activities,
+      component: ActivitiesView,
       meta: { requiresAuth: true },
     },
     {
       path: '/groupwork',
       name: 'GroupWork',
-      component: GroupWork,
+      component: GroupWorkView,
       meta: { requiresAuth: true },
     },
   ],

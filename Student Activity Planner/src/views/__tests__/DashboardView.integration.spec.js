@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import axios from 'axios'
-import Dashboard from '../components/Dashboard.vue'
-import { dashboardStorageKey } from '../utils/dashboardPersonalization'
+import Dashboard from '@/views/DashboardView.vue'
+import { dashboardStorageKey } from '@/composables/useDashboardPersonalization'
 
 vi.mock('axios', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn() } }))
 

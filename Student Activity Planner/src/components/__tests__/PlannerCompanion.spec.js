@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import PlannerCompanion from '../components/PlannerCompanion.vue'
-import LoginCharacters from '../components/LoginCharacters.vue'
+import PlannerCompanion from '@/components/PlannerCompanion.vue'
+import LoginCharacters from '@/components/LoginCharacters.vue'
 
 let wrapper
 let media
 function render(props = {}) {
   wrapper = mount(PlannerCompanion, {
     props: { message: 'Two deadlines tomorrow.', ...props },
+    global: { stubs: { LoginCharacters: true } },
   })
   return wrapper
 }

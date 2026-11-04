@@ -1,6 +1,6 @@
 <script setup>
-import PlannerIcon from './PlannerIcon.vue'
-import LoginCharacters from './LoginCharacters.vue'
+import PlannerIcon from '@/components/icons/PlannerIcon.vue'
+import LoginCharacters from '@/components/LoginCharacters.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'

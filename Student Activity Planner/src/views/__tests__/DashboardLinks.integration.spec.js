@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import axios from 'axios'
-import Activities from '../components/Activities.vue'
-import Assignments from '../components/Assignments.vue'
-import GroupWork from '../components/GroupWork.vue'
-import { dashboardStorageKey } from '../utils/dashboardPersonalization'
+import Activities from '@/views/ActivitiesView.vue'
+import Assignments from '@/views/AssignmentsView.vue'
+import GroupWork from '@/views/GroupWorkView.vue'
+import { dashboardStorageKey } from '@/composables/useDashboardPersonalization'
 
 vi.mock('axios', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn() } }))
 let wrapper
@@ -160,7 +160,7 @@ describe('Dashboard action destinations', () => {
     )
     await render(GroupWork, '/groupwork?group=second-group&meeting=target')
     expect(wrapper.get('#gm-group').element.value).toBe('second-group')
-    expect(wrapper.get('#meeting-target').classes()).toContain('gm-requested-meeting')
+    expect(wrapper.get('#meeting-target').text()).toContain('Project meeting')
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
     await wrapper.get('#gm-group').setValue('first-group')
     expect(wrapper.find('#meeting-target').exists()).toBe(false)

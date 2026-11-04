@@ -1,5 +1,5 @@
 <script setup>
-import PlannerIcon from './PlannerIcon.vue'
+import PlannerIcon from '@/components/icons/PlannerIcon.vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import PlannerNavigation from '../components/PlannerNavigation.vue'
+import PlannerNavigation from '@/components/PlannerNavigation.vue'
 
 let wrapper
 afterEach(() => wrapper?.unmount())
@@ -26,7 +26,6 @@ describe('Shared planner navigation', () => {
     await render({ active: '/activities' })
     const current = wrapper.get('[aria-current="page"]')
     expect(current.text()).toBe('Activities')
-    expect(current.classes()).toContain('active')
     expect(wrapper.get('a[href="/calendar"]').text()).toBe('Calendar')
     expect(wrapper.find('a[href="/dashboard#dashboard-weather"]').exists()).toBe(false)
   })

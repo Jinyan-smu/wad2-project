@@ -2,11 +2,11 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
-import PlannerNavigation from './PlannerNavigation.vue'
-import PlannerCompanion from './PlannerCompanion.vue'
-import GoogleActivityMap from './GoogleActivityMap.vue'
-import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
-import { getTaskUrgency } from '../utils/taskUrgency'
+import PlannerNavigation from '@/components/PlannerNavigation.vue'
+import PlannerCompanion from '@/components/PlannerCompanion.vue'
+import GoogleActivityMap from '@/components/GoogleActivityMap.vue'
+import TaskUrgencyBadge from '@/components/TaskUrgencyBadge.vue'
+import { getTaskUrgency } from '@/utils/taskUrgency'
 
 const route = useRoute()
 

@@ -2,10 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
-import PlannerNavigation from './PlannerNavigation.vue'
-import PlannerIcon from './PlannerIcon.vue'
-import PlannerCompanion from './PlannerCompanion.vue'
-import GroupAvailabilityGrid from './GroupAvailabilityGrid.vue'
+import PlannerNavigation from '@/components/PlannerNavigation.vue'
+import PlannerIcon from '@/components/icons/PlannerIcon.vue'
+import PlannerCompanion from '@/components/PlannerCompanion.vue'
+import GroupAvailabilityGrid from '@/components/GroupAvailabilityGrid.vue'
 
 // Availability is calculated on the server from all members' saved schedules.
 // Only free/busy information reaches this page; personal calendar details stay private.

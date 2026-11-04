@@ -2,9 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import axios from 'axios'
-import PlannerNavigation from './PlannerNavigation.vue'
-import PlannerCompanion from './PlannerCompanion.vue'
-import PlannerIcon from './PlannerIcon.vue'
+import PlannerNavigation from '@/components/PlannerNavigation.vue'
+import PlannerCompanion from '@/components/PlannerCompanion.vue'
+import PlannerIcon from '@/components/icons/PlannerIcon.vue'
 import {
   buildCalendarEvents,
   calendarDateKey,
@@ -15,7 +15,7 @@ import {
   isCalendarDate,
   layoutCalendarDay,
   shiftCalendarDate,
-} from '../utils/calendarEvents'
+} from '@/utils/calendarEvents'
 
 const route = useRoute()
 const anchor = ref(calendarDateKey())

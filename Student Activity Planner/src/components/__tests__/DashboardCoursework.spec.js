@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import DashboardCoursework from '../components/DashboardCoursework.vue'
+import DashboardCoursework from '@/components/DashboardCoursework.vue'
 
 const at = (day, hour = 12, minute = 0) => new Date(2026, 10, day, hour, minute)
 const item = (key, type, when, extra = {}) => ({

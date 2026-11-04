@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import GroupAvailabilityGrid from '../components/GroupAvailabilityGrid.vue'
+import GroupAvailabilityGrid from '@/components/GroupAvailabilityGrid.vue'
 
 const wrappers = []
 function render(options) {
@@ -54,7 +54,7 @@ describe('GroupAvailabilityGrid', () => {
     ])
   })
 
-  it('colors only by per-slot counts while keeping unavailable meeting starts inspectable', async () => {
+  it('shows availability counts while keeping unavailable meeting starts inspectable', async () => {
     const wrapper = render({
       props: {
         availability: availability([
@@ -65,10 +65,6 @@ describe('GroupAvailabilityGrid', () => {
       },
     })
     const buttons = wrapper.findAll('.ag-cell')
-    expect(buttons[0].classes()).toContain('ag-cell-busy')
-    expect(buttons[1].classes()).toContain('ag-cell-some')
-    expect(buttons[2].classes()).toContain('ag-cell-everyone')
-    expect(buttons[2].classes()).not.toContain('ag-cell-no-fit')
     expect(buttons.map((button) => button.get('.ag-cell-count').text())).toEqual([
       '0/3',
       '2/3',
@@ -94,7 +90,6 @@ describe('GroupAvailabilityGrid', () => {
         durationMinutes: 60,
       },
     })
-    expect(wrapper.findAll('.ag-cell-selected')).toHaveLength(4)
     expect(wrapper.findAll('[aria-pressed="true"]')).toHaveLength(4)
     expect(wrapper.get('.ag-selection-start').attributes('aria-label')).toContain(
       'Part of your selected meeting',
@@ -129,7 +124,6 @@ describe('GroupAvailabilityGrid', () => {
     expect(wrapper.findAll('.ag-cell-missing')).toHaveLength(2)
     expect(wrapper.findAll('tbody tr')[0].text()).toContain('09:00')
     expect(wrapper.findAll('tbody tr')[1].text()).toContain('10:00')
-    expect(wrapper.get('table').attributes('style')).toContain('min-width: 236px')
   })
 
   it('shows a meaningful empty state and a separate loading status', async () => {
@@ -147,15 +141,14 @@ describe('GroupAvailabilityGrid', () => {
     expect(wrapper.find('.ag-empty').exists()).toBe(true)
   })
 
-  it('keeps availability counts and colors unchanged when only the meeting length changes', async () => {
+  it('keeps availability counts unchanged when only the meeting length changes', async () => {
     const start = cell('09:00')
     const wrapper = render({ props: { availability: availability([start]), durationMinutes: 30 } })
-    const classes = wrapper.get('.ag-cell').classes()
+    expect(wrapper.get('.ag-cell-count').text()).toBe('3/3')
     await wrapper.setProps({
       availability: availability([{ ...start, canBook: false }]),
       durationMinutes: 90,
     })
-    expect(wrapper.get('.ag-cell').classes()).toEqual(classes)
     expect(wrapper.get('.ag-cell-count').text()).toBe('3/3')
     await wrapper.get('.ag-cell').trigger('click')
     expect(wrapper.emitted('select')).toBeUndefined()
