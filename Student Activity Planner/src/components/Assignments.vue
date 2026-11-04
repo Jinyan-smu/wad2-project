@@ -1,11 +1,15 @@
 <script setup>
-  import { computed, onMounted, ref } from 'vue'
+  import { computed, onMounted, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import axios from 'axios'
   import PlannerNavigation from './PlannerNavigation.vue'
+  import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
+  import { recordCourseworkCompletion } from '../utils/dashboardPersonalization'
+  import { getTaskUrgency } from '../utils/taskUrgency'
 
   const API_URL = 'http://localhost:8000/api'
   const route = useRoute()
+  let viewerRequest = Promise.resolve(null)
 
   const courses = ref([])
   const assignments = ref([])
@@ -182,6 +186,15 @@
     })[status]
   }
 
+  function eventUrgency(item) {
+    return getTaskUrgency(item.DueDate, { done: item.Done })
+  }
+
+  function urgencyClass(item) {
+    const urgency = eventUrgency(item)
+    return urgency ? `urgency-${urgency.level}` : ''
+  }
+
   function friendlyEventDate(item) {
     if (!item.EventDate) return 'No due date'
 
@@ -292,6 +305,7 @@
       courses.value = data.courses || []
       assignments.value = data.assignments || []
       quizzes.value = data.quizzes || []
+      applyDashboardFilters()
       if (!form.value.courseId && courses.value.length) {
         form.value.courseId = String(courses.value[0].Id)
       }
@@ -368,14 +382,26 @@
       const item = items.find((candidate) =>
         String(candidate.Id) === String(event.Id) && String(candidate.CourseId) === String(event.CourseId),
       )
-      if (item) item.Done = done
+      if (item) {
+        item.Done = done
+        viewerRequest.then(userId => recordCourseworkCompletion(userId, { key: [event.Type, event.CourseId, event.Id].join(':'), title: event.Name }, done))
+      }
       successMessage.value = done ? 'Marked as completed.' : 'Marked as not completed.'
     } catch (error) {
       actionError.value = error.response?.data?.message || 'Could not update this item. Please try again.'
     }
   }
 
+  function applyDashboardFilters() {
+    if (typeof route.query.course === 'string' && courses.value.some(course => String(course.Id) === route.query.course)) selectedCourseId.value = route.query.course
+    if (typeof route.query.search === 'string') {
+      searchQuery.value = route.query.search
+      activeView.value = 'list'
+    }
+  }
+  watch(() => [route.query.course, route.query.search], applyDashboardFilters)
   onMounted(() => {
+    viewerRequest = axios.get(API_URL + '/me', { withCredentials: true, timeout: 10000 }).then(({ data }) => data.user?.id ?? null).catch(() => null)
     if (route.query.new === '1') showForm.value = true
     loadPlannerData()
   })
@@ -585,10 +611,12 @@
 											v-for="event in day.events.slice(0, 3)"
 											:key="`${event.Type}-${event.CourseId}-${event.Id}`"
 											class="calendar-event"
-											:class="[event.Type, eventStatus(event)]"
+											:class="[event.Type, eventStatus(event), urgencyClass(event)]"
+											:title="eventUrgency(event) ? `${event.Name} · ${eventUrgency(event).label}` : event.Name"
 										>
 											<span class="event-dot" aria-hidden="true"></span>
 											<span class="event-name">{{ event.Name }}</span>
+											<span v-if="eventUrgency(event)" class="calendar-urgency">{{ eventUrgency(event).label }}</span>
 										</span>
 										<span v-if="day.events.length > 3" class="more-events"
 											>+{{ day.events.length - 3 }} more</span
@@ -623,6 +651,7 @@
 								v-for="event in selectedDateEvents"
 								:key="`${event.Type}-${event.CourseId}-${event.Id}`"
 								class="event-detail"
+								:class="urgencyClass(event)"
 							>
 								<span class="event-type-icon" :class="event.Type">{{
 									event.Type === 'quiz' ? '✏️' : '📝'
@@ -632,8 +661,9 @@
 									<span
 										>{{ event.CourseName }}<template v-if="formatTime(event.EventDate)"> · {{ formatTime(event.EventDate) }}</template></span
 									>
-									<span class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
-									<span class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
+									<span v-if="!eventUrgency(event)" class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
+									<div v-if="eventUrgency(event)" class="coursework-urgency"><TaskUrgencyBadge :urgency="eventUrgency(event)" /></div>
+									<span v-else class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
 								</div>
 								<span
 									class="badge rounded-pill"
@@ -695,13 +725,14 @@
 									<span class="group-chevron" aria-hidden="true">{{ isCourseCollapsed(group.id) ? '＋' : '−' }}</span>
 								</button>
 								<div v-if="!isCourseCollapsed(group.id)" class="course-group-items">
-									<article v-for="event in group.events" :key="`${event.Type}-${event.CourseId}-${event.Id}`" class="coursework-card" :class="eventStatus(event)">
+									<article v-for="event in group.events" :key="`${event.Type}-${event.CourseId}-${event.Id}`" class="coursework-card" :class="[eventStatus(event), urgencyClass(event)]">
 										<span class="event-type-icon" :class="event.Type">{{ event.Type === 'quiz' ? '✏️' : '📝' }}</span>
 										<div class="coursework-card-main">
 											<strong>{{ event.Name }}</strong>
 											<span>{{ event.CourseName }}<template v-if="formatTime(event.EventDate)"> · {{ formatTime(event.EventDate) }}</template></span>
-											<span class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
-											<span class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
+											<span v-if="!eventUrgency(event)" class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
+											<div v-if="eventUrgency(event)" class="coursework-urgency"><TaskUrgencyBadge :urgency="eventUrgency(event)" /></div>
+											<span v-else class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
 										</div>
 										<label class="completion-action"><input type="checkbox" :checked="event.Done" :aria-label="`Mark ${event.Name} completed`" @change="toggleCompleted(event)" /> Completed</label>
 										<button v-if="event.Type === 'assignment' && event.IsCustom" type="button" class="btn btn-sm btn-outline-secondary" @click="startEditingAssignment(event)">Edit</button>
@@ -1198,6 +1229,46 @@
 	margin: 0;
 	color: var(--muted);
 	font-size: 0.88rem;
+}
+
+.urgency-overdue,
+.urgency-urgent {
+	--deadline-accent: var(--red);
+	--deadline-soft: #fff5f5;
+}
+.urgency-soon {
+	--deadline-accent: #925517;
+	--deadline-soft: #fffaf0;
+}
+.urgency-week {
+	--deadline-accent: var(--brand);
+	--deadline-soft: #faf8fe;
+}
+.calendar-event:is(.urgency-overdue, .urgency-urgent, .urgency-soon, .urgency-week) {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	row-gap: 0.15rem;
+	box-shadow: inset 3px 0 var(--deadline-accent);
+	padding-left: 0.45rem;
+}
+.calendar-urgency {
+	grid-column: 1 / -1;
+	color: var(--deadline-accent);
+	font-weight: 700;
+}
+:is(.event-detail, .coursework-card):is(.urgency-overdue, .urgency-urgent, .urgency-soon, .urgency-week) {
+	border-left: 3px solid var(--deadline-accent);
+	padding-left: 0.7rem;
+	background: var(--deadline-soft);
+}
+.coursework-urgency {
+	display: flex;
+	align-items: center;
+	padding-top: 0.1rem;
+}
+.coursework-urgency :deep(.task-urgency-badge) {
+	color: var(--deadline-accent);
+	font-size: 0.72rem;
 }
 
 @media (max-width: 767.98px) {

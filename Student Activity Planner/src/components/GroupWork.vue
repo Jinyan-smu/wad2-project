@@ -1,29 +1,28 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import PlannerNavigation from './PlannerNavigation.vue'
 import PlannerIcon from './PlannerIcon.vue'
+import GroupAvailabilityGrid from './GroupAvailabilityGrid.vue'
 
-/*
- * AI-assisted implementation of the two behaviours this screen was missing:
- * common-availability matching and the invitation send/accept flow.
- * The matching algorithm and the invitation rules live on the server
- * (server/group-meetings.js) so the browser only ever receives the answer,
- * never another member's raw calendar. Record this assistance in the team's
- * final README.txt as required by the brief.
- *
- * Booking was added later: a chosen slot becomes a real meeting, blocks the
- * slot for every participant, and shows up on the Dashboard timeline as an
- * activity (the server derives it from the meeting, so it cannot drift).
- */
+// Availability is calculated on the server from all members' saved schedules.
+// Only free/busy information reaches this page; personal calendar details stay private.
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 const TIME_ZONE = 'Asia/Singapore'
+const route = useRoute()
+const router = useRouter()
+const pageHeading = ref(null)
+const resultsAnchor = ref(null)
+const meetingsSection = ref(null)
+const bookingAnchor = ref(null)
+const bellButton = ref(null)
+const bellPanel = ref(null)
+const cancelLeaveButton = ref(null)
 
 const loading = ref(true)
 const loadError = ref('')
 const state = ref(null)
-
 const selectedGroupId = ref('')
 const draft = reactive({
   fromDate: '',
@@ -31,56 +30,40 @@ const draft = reactive({
   startTime: '09:00',
   endTime: '18:00',
   durationMinutes: '60',
+  assignmentBufferMinutes: 60,
 })
-
 const matching = ref(false)
 const matchError = ref('')
 const matchResult = ref(null)
-
-// Search form and results now live in one card, so after a search the viewport
-// moves to the answer block instead of leaving the user staring at the button.
-const resultsAnchor = ref(null)
-const meetingsSection = ref(null)
-const bookingAnchor = ref(null)
-const flashTarget = ref('')
-let highlightTimer = 0
-
-const busyAction = ref('')
-const actionError = ref('')
-const actionNotice = ref('')
-
-const inviteEmail = ref('')
-// Inviting has its own group choice: you often create a group first and only
-// then think about who to add, without switching the whole page.
-const inviteGroupId = ref('')
-const inviteError = ref('')
-const inviteNotice = ref('')
-
-const newGroupName = ref('')
-const newGroupError = ref('')
-
-// Booking form. A slot chip in the results simply fills this in.
-const booking = reactive({ title: '', date: '', startTime: '09:00', durationMinutes: '60' })
+const selectedSlot = ref(null)
+const lastUpdated = ref('')
+const booking = reactive({ title: '' })
 const bookingBusy = ref(false)
 const bookingError = ref('')
 const bookingNotice = ref('')
-
-// Cancelling is two steps: the second click confirms, so a stray click on the
-// meeting list cannot delete a booking.
 const confirmingMeetingId = ref('')
-
-// Booking a time that is not shared-free asks first: { title, startAt, endAt,
-// conflicts, reason }. reason is 'busy' | 'outside' | 'unsearched'.
-const bookingConfirm = ref(null)
-const confirmButton = ref(null)
-const confirmBusyNames = computed(() =>
-  (bookingConfirm.value?.conflicts || []).map((item) => item.name).join(', '),
-)
-
-// Existing planner source, kept for context alongside the group data.
-const planner = reactive({ assignments: [], quizzes: [], activities: [] })
-const plannerLoading = ref(true)
-const plannerError = ref('')
+const busyAction = ref('')
+const actionError = ref('')
+const actionNotice = ref('')
+const newGroupName = ref('')
+const newGroupError = ref('')
+const joinCode = ref('')
+const joinError = ref('')
+const joining = ref(false)
+const copyNotice = ref('')
+const inviteEmail = ref('')
+const inviteGroupId = ref('')
+const inviteError = ref('')
+const inviteNotice = ref('')
+const bellOpen = ref(false)
+const confirmingLeave = ref(false)
+const leaving = ref(false)
+const leaveError = ref('')
+let destroyed = false
+let stateRequest = 0
+let searchRequest = 0
+let bookingRequest = 0
+let refreshTimer
 
 const groups = computed(() => state.value?.groups || [])
 const selectedGroup = computed(
@@ -91,114 +74,70 @@ const incomingInvitations = computed(() => state.value?.incomingInvitations || [
 const pendingCount = computed(
   () => incomingInvitations.value.filter((invitation) => invitation.status === 'pending').length,
 )
-
-// Invitations live in the sidebar bell instead of taking a card at the top of
-// the page: the badge carries the "something needs you" signal.
-const bellOpen = ref(false)
-const bellButton = ref(null)
-const mobileBellButton = ref(null)
-const bellPanel = ref(null)
-const bellPanelStyle = ref({})
-
-function placeBellPanel() {
-  if (window.innerWidth < 992) {
-    // Narrow screens use the CSS placement (full width, below the top bar).
-    bellPanelStyle.value = {}
-    return
-  }
-  const anchor = (bellButton.value || mobileBellButton.value)?.getBoundingClientRect()
-  if (!anchor) return
-  const height = 460
-  bellPanelStyle.value = {
-    top: `${Math.max(16, Math.min(anchor.top - 8, window.innerHeight - height))}px`,
-    left: `${anchor.right + 12}px`,
-  }
-}
-
-function toggleBell() {
-  bellOpen.value = !bellOpen.value
-  if (bellOpen.value) nextTick(placeBellPanel)
-}
-
-function onBellDocumentClick(event) {
-  const target = event.target
-  if (bellPanel.value?.contains(target)) return
-  if (bellButton.value?.contains(target) || mobileBellButton.value?.contains(target)) return
-  bellOpen.value = false
-}
-
-function onBellKeydown(event) {
-  if (event.key === 'Escape') bellOpen.value = false
-}
-
-watch(bellOpen, (open) => {
-  if (open) {
-    document.addEventListener('click', onBellDocumentClick, true)
-    document.addEventListener('keydown', onBellKeydown)
-  } else {
-    document.removeEventListener('click', onBellDocumentClick, true)
-    document.removeEventListener('keydown', onBellKeydown)
-  }
-})
 const inviteGroup = computed(
   () => groups.value.find((group) => group.id === inviteGroupId.value) || null,
 )
-const sentInvitations = computed(
-  () =>
-    (state.value?.sentInvitations || []).filter(
-      (invitation) => invitation.groupId === inviteGroupId.value,
-    ),
-)
-const groupMeetings = computed(
-  () => (state.value?.meetings || []).filter((meeting) => meeting.groupId === selectedGroupId.value),
+const groupMeetings = computed(() =>
+  (state.value?.meetings || []).filter((meeting) => meeting.groupId === selectedGroupId.value),
 )
 const canJoinDemo = computed(() => state.value?.demo?.canJoin === true)
-const matchReady = computed(() => members.value.length > 0)
-// Group meetings are already listed above; the read-only source list shows the
-// rest of the planner's activities only.
-const sourceActivities = computed(() =>
-  planner.activities.filter((activity) => activity.source !== 'group-meeting'),
-)
-const bookingPlaceholder = computed(() => 'e.g. Weekly sync')
+const sources = computed(() => matchResult.value?.sources)
+const suggestedSlots = computed(() => {
+  if (matchResult.value?.status !== 'ok') return []
+  const availableStarts = new Set(
+    (matchResult.value.availability?.days || []).flatMap((day) =>
+      day.cells.filter((cell) => cell.canBook).map((cell) => Date.parse(cell.startAt)),
+    ),
+  )
+  const duration = Number(draft.durationMinutes) * 60000
+  const picks = []
+  for (const day of matchResult.value.days || []) {
+    for (const block of day.blocks || []) {
+      for (const slot of block.slots || []) {
+        if (
+          availableStarts.has(Date.parse(slot.startAt)) &&
+          !picks.some(
+            (pick) => Math.abs(Date.parse(pick.startAt) - Date.parse(slot.startAt)) < duration,
+          )
+        ) {
+          picks.push({ ...slot, date: day.date })
+          if (picks.length === 3) return picks
+        }
+      }
+    }
+  }
+  return picks
+})
 
 function messageOf(error) {
   return (
-    error?.response?.data?.message ||
-    error?.message ||
-    'Something went wrong. Please try again.'
+    error?.response?.data?.message || error?.message || 'Something went wrong. Please try again.'
   )
 }
-
-function formatDateTime(value) {
-  if (!value) return 'Date not provided'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Invalid date in source'
-  return date.toLocaleString('en-SG', {
-    timeZone: TIME_ZONE,
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+function initials(name = '') {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase() || '?'
+  )
 }
-
 function formatTime(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '--:--'
-  return date.toLocaleTimeString('en-SG', {
+  return date.toLocaleTimeString('en-GB', {
     timeZone: TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
   })
 }
-
 function formatRange(startAt, endAt) {
   return `${formatTime(startAt)} – ${formatTime(endAt)}`
 }
-
-/** Calendar date (YYYY-MM-DD) of an instant, read in Singapore time. */
 function sgDate(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
@@ -209,16 +148,8 @@ function sgDate(value) {
     day: '2-digit',
   }).format(date)
 }
-
-/** Singapore wall clock (date + HH:MM) -> ISO instant. */
-function sgStartIso(dateText, timeText) {
-  if (!dateText || !timeText) return ''
-  const stamp = Date.parse(`${dateText}T${timeText}:00+08:00`)
-  return Number.isNaN(stamp) ? '' : new Date(stamp).toISOString()
-}
-
 function formatDay(dateText) {
-  const date = new Date(`${dateText}T00:00:00+08:00`)
+  const date = new Date(`${dateText}T12:00:00+08:00`)
   if (Number.isNaN(date.getTime())) return dateText
   return date.toLocaleDateString('en-SG', {
     timeZone: TIME_ZONE,
@@ -228,253 +159,207 @@ function formatDay(dateText) {
     year: 'numeric',
   })
 }
-
-const BLOCKER_LABELS = {
-  schedule_incomplete: 'Calendar not complete',
-  coverage_partial: 'Calendar coverage too short',
-  unknown_member: 'No member profile',
-}
-
-function blockerLabel(reason) {
-  return BLOCKER_LABELS[reason] || 'Availability unknown'
-}
-
-function ensureSelection() {
-  const list = state.value?.groups || []
-  if (!list.some((group) => group.id === selectedGroupId.value)) {
-    selectedGroupId.value = list[0]?.id || ''
-  }
-  if (!list.some((group) => group.id === inviteGroupId.value)) {
-    inviteGroupId.value = selectedGroupId.value
-  }
-}
-
-async function loadGroupState() {
-  loading.value = true
-  loadError.value = ''
-  try {
-    const response = await axios.get(`${API_URL}/group-meetings`,{ withCredentials: true })
-    const data = response.data
-    state.value = data
-
-    if (!draft.fromDate) {
-      Object.assign(draft, {
-        fromDate: data.defaults.fromDate,
-        toDate: data.defaults.toDate,
-        startTime: data.defaults.startTime,
-        endTime: data.defaults.endTime,
-        durationMinutes: String(data.defaults.durationMinutes),
-      })
-    }
-    if (!booking.date) booking.date = data.fromDate
-
-    ensureSelection()
-  } catch (error) {
-    loadError.value = messageOf(error)
-    state.value = null
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadPlannerData() {
-  plannerLoading.value = true
-  plannerError.value = ''
-  try {
-    const response = await axios.get(`${API_URL}/planner-data`, { withCredentials: true })
-    const data = response.data
-    if (!Array.isArray(data?.activities) || !Array.isArray(data?.assignments)) {
-      throw new Error('The planner response is missing expected fields.')
-    }
-    planner.activities = data.activities
-    planner.assignments = data.assignments
-    planner.quizzes = data.quizzes || []
-  } catch (error) {
-    plannerError.value = messageOf(error)
-  } finally {
-    plannerLoading.value = false
-  }
-}
-
-onMounted(() => {
-  loadGroupState()
-  loadPlannerData()
-})
-
-watch(selectedGroupId, () => {
-  matchResult.value = null
-  matchError.value = ''
-  inviteError.value = ''
-  inviteNotice.value = ''
-  bookingError.value = ''
-  bookingNotice.value = ''
-  confirmingMeetingId.value = ''
-  // The invite panel follows the page's group until it is pointed elsewhere.
-  inviteGroupId.value = selectedGroupId.value
-})
-
-/* ------------------------------------------------------------------ *
- * Scrolling helpers: a result the user cannot see looks like a bug.
- * ------------------------------------------------------------------ */
-
-function flash(name) {
-  flashTarget.value = name
-  window.clearTimeout(highlightTimer)
-  highlightTimer = window.setTimeout(() => {
-    flashTarget.value = ''
-  }, 1800)
-}
-
 function revealElement(element) {
   if (!element) return
   const rect = element.getBoundingClientRect()
-  const alreadyInPlace = rect.top >= 0 && rect.top <= window.innerHeight * 0.35
-  if (!alreadyInPlace) {
+  if (rect.top < 0 || rect.top > window.innerHeight * 0.35) {
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-    element.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+    element.scrollIntoView?.({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
   }
-  element.focus({ preventScroll: true })
+  element.focus?.({ preventScroll: true })
 }
-
-async function revealResults() {
+async function focusRequestedMeeting() {
+  if (typeof route.query.meeting !== 'string') return
   await nextTick()
-  revealElement(resultsAnchor.value)
-  flash('results')
+  document.getElementById('meeting-' + route.query.meeting)?.scrollIntoView?.({ block: 'center' })
 }
-
-async function revealMeetings() {
+function ensureSelection() {
+  const requested = typeof route.query.group === 'string' ? route.query.group : ''
+  selectedGroupId.value = groups.value.find((group) => String(group.id) === requested)?.id || ''
+  if (!groups.value.some((group) => group.id === inviteGroupId.value))
+    inviteGroupId.value = selectedGroupId.value
+}
+async function loadGroupState({ silent = false } = {}) {
+  const request = ++stateRequest
+  if (!silent || !state.value) loading.value = true
+  loadError.value = ''
+  try {
+    const { data } = await axios.get(`${API_URL}/group-meetings`, { withCredentials: true })
+    if (destroyed || request !== stateRequest) return false
+    state.value = data
+    if (!draft.fromDate) {
+      const defaults = data.defaults
+      Object.assign(draft, {
+        fromDate: defaults.fromDate,
+        toDate: new Date(Date.parse(`${defaults.fromDate}T12:00:00Z`) + 6 * 86400000)
+          .toISOString()
+          .slice(0, 10),
+        startTime: defaults.startTime,
+        endTime: defaults.endTime,
+        durationMinutes: String(defaults.durationMinutes),
+      })
+    }
+    ensureSelection()
+    return true
+  } catch (error) {
+    if (!destroyed && request === stateRequest) loadError.value = messageOf(error)
+    return false
+  } finally {
+    if (!destroyed && request === stateRequest) {
+      loading.value = false
+      await focusRequestedMeeting()
+    }
+  }
+}
+async function openGroup(groupId) {
+  if (!groups.value.some((group) => group.id === groupId)) return
+  selectedGroupId.value = groupId
+  const query = { ...route.query, group: groupId }
+  delete query.meeting
+  await router.push({ path: route.path, query, hash: '' })
+  if (destroyed) return
   await nextTick()
-  revealElement(meetingsSection.value)
-  flash('meetings')
+  revealElement(pageHeading.value)
 }
-
-async function revealBooking() {
+async function returnToGroups() {
+  stateRequest++
+  loading.value = false
+  selectedGroupId.value = ''
+  confirmingLeave.value = false
+  const query = { ...route.query }
+  delete query.group
+  delete query.meeting
+  await router.replace({ path: route.path, query, hash: '' })
   await nextTick()
-  revealElement(bookingAnchor.value)
+  revealElement(pageHeading.value)
+}
+async function refreshSchedules() {
+  const groupId = selectedGroupId.value
+  if ((await loadGroupState({ silent: true })) && groupId && groupId === selectedGroupId.value) {
+    await findCommonTime({ quiet: true })
+  }
 }
 
-onBeforeUnmount(() => {
-  window.clearTimeout(highlightTimer)
-  document.removeEventListener('click', onBellDocumentClick, true)
-  document.removeEventListener('keydown', onBellKeydown)
-})
-
-/* ------------------------------------------------------------------ *
- * Matching
- * ------------------------------------------------------------------ */
-
-async function findCommonTime({ quiet = false } = {}) {
+function invalidateAvailability() {
+  searchRequest++
+  clearTimeout(refreshTimer)
+  matching.value = false
+  selectedSlot.value = null
+  matchResult.value = null
   matchError.value = ''
-  if (!selectedGroupId.value) {
-    matchError.value = 'Choose a group first.'
-    if (!quiet) await revealResults()
+  lastUpdated.value = ''
+}
+watch(selectedGroupId, (groupId) => {
+  invalidateAvailability()
+  bookingRequest++
+  bookingBusy.value = false
+  booking.title = ''
+  bookingError.value = ''
+  bookingNotice.value = ''
+  confirmingLeave.value = false
+  confirmingMeetingId.value = ''
+  copyNotice.value = ''
+  inviteError.value = ''
+  inviteNotice.value = ''
+  inviteGroupId.value = groupId
+  if (groupId) findCommonTime({ quiet: true })
+})
+watch(
+  () => Object.values(draft),
+  () => {
+    invalidateAvailability()
+    if (selectedGroupId.value) {
+      matching.value = true
+      refreshTimer = setTimeout(() => findCommonTime({ quiet: true }), 400)
+    }
+  },
+)
+watch(
+  () => [route.query.group, route.query.meeting],
+  () => {
+    if (!state.value) return
+    ensureSelection()
+    focusRequestedMeeting()
+  },
+)
+async function findCommonTime({ quiet = false } = {}) {
+  clearTimeout(refreshTimer)
+  const request = ++searchRequest
+  const groupId = selectedGroupId.value
+  selectedSlot.value = null
+  matchError.value = ''
+  matchResult.value = null
+  if (!groupId || destroyed) {
+    matching.value = false
     return
   }
-
   matching.value = true
   try {
-    const response = await axios.post(`${API_URL}/group-meetings/common-time`, {
-      groupId: selectedGroupId.value,
-      fromDate: draft.fromDate,
-      toDate: draft.toDate,
-      startTime: draft.startTime,
-      endTime: draft.endTime,
-      durationMinutes: Number(draft.durationMinutes),
-    }, { withCredentials: true })
-    const data = response.data
+    const { data } = await axios.post(
+      `${API_URL}/group-meetings/common-time`,
+      {
+        groupId,
+        fromDate: draft.fromDate,
+        toDate: draft.toDate,
+        startTime: draft.startTime,
+        endTime: draft.endTime,
+        durationMinutes: Number(draft.durationMinutes),
+        assignmentBufferMinutes: Number(draft.assignmentBufferMinutes),
+      },
+      { withCredentials: true },
+    )
+    if (destroyed || request !== searchRequest || groupId !== selectedGroupId.value) return
     matchResult.value = data
-
-    // Prefill the booking form with the best slot, but never overwrite a time
-    // the user picked by hand.
-    if (data.status === 'ok' && data.best && !booking.date) {
-      booking.date = data.best.date
-      booking.startTime = formatTime(data.best.startAt)
-      booking.durationMinutes = String(data.window.durationMinutes)
-    }
+    lastUpdated.value = new Date().toLocaleTimeString('en-SG', {
+      timeZone: TIME_ZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   } catch (error) {
+    if (destroyed || request !== searchRequest || groupId !== selectedGroupId.value) return
     matchError.value = messageOf(error)
-    matchResult.value = null
   } finally {
-    matching.value = false
-    // Runs after the spinner is gone, so the answer is already in the DOM.
-    if (!quiet) await revealResults()
+    if (!destroyed && request === searchRequest && groupId === selectedGroupId.value) {
+      matching.value = false
+      if (!quiet) {
+        await nextTick()
+        revealElement(resultsAnchor.value)
+      }
+    }
   }
 }
-
-/* ------------------------------------------------------------------ *
- * Booking
- * ------------------------------------------------------------------ */
-
-function pickSlot(date, slot) {
-  booking.date = date
-  booking.startTime = formatTime(slot.startAt)
-  booking.durationMinutes = String(matchResult.value?.window?.durationMinutes || 60)
+async function pickSlot(date, slot) {
+  if (matching.value || bookingBusy.value || matchResult.value?.status !== 'ok') return
+  const cell = matchResult.value.availability?.days
+    .find((day) => day.date === date)
+    ?.cells.find((item) => item.canBook && Date.parse(item.startAt) === Date.parse(slot.startAt))
+  if (!cell) return
+  selectedSlot.value = {
+    date,
+    startAt: cell.startAt,
+    endAt: new Date(Date.parse(cell.startAt) + Number(draft.durationMinutes) * 60000).toISOString(),
+    request: searchRequest,
+  }
   bookingError.value = ''
   bookingNotice.value = ''
-  revealBooking()
-}
-
-function isPickedSlot(date, slot) {
-  return (
-    booking.date === date &&
-    booking.startTime === formatTime(slot.startAt) &&
-    Number(booking.durationMinutes) === matchResult.value?.window?.durationMinutes
-  )
-}
-
-/**
- * True when the range sits inside one of the free blocks the last search
- * returned, i.e. the search already proved everyone is free for that long.
- */
-function isInsideSharedFreeBlock(startAt, endAt) {
-  if (matchResult.value?.status !== 'ok') return false
-  const start = Date.parse(startAt)
-  const end = Date.parse(endAt)
-
-  return matchResult.value.days.some((day) =>
-    day.blocks.some(
-      (block) => start >= Date.parse(block.startAt) && end <= Date.parse(block.endAt),
-    ),
-  )
-}
-
-async function submitBooking({ title, startAt, endAt, force }) {
-  bookingBusy.value = true
-  try {
-    const response = await axios.post(`${API_URL}/group-meetings/meetings`, {
-      groupId: selectedGroupId.value,
-      title,
-      startAt,
-      endAt,
-      force,
-    }, { withCredentials: true })
-
-    const data = response.data
-
-    bookingConfirm.value = null
-    bookingNotice.value =
-      `"${data.meeting.title}" is booked for ${formatDay(sgDate(data.meeting.startAt))}, ` +
-      `${formatRange(data.meeting.startAt, data.meeting.endAt)}. ` +
-      'It is on your Dashboard timeline now.'
-
-    await loadGroupState()
-    // The booked slot is no longer free, so refresh the result silently.
-    if (matchResult.value) await findCommonTime({ quiet: true })
-    await revealMeetings()
-  } catch (error) {
-    bookingConfirm.value = null
-    bookingError.value = messageOf(error)
-  } finally {
-    bookingBusy.value = false
+  await nextTick()
+  const bookingBounds = bookingAnchor.value?.getBoundingClientRect()
+  if (
+    window.innerWidth < 1100 ||
+    (bookingBounds && (bookingBounds.bottom < 0 || bookingBounds.top > window.innerHeight))
+  ) {
+    revealElement(bookingAnchor.value)
   }
+  document.getElementById('gm-meeting-title')?.focus({ preventScroll: true })
 }
-
 async function bookMeeting() {
+  if (bookingBusy.value || matching.value) return
   bookingError.value = ''
   bookingNotice.value = ''
-
-  if (!selectedGroupId.value) {
-    bookingError.value = 'Choose a group first.'
+  const groupId = selectedGroupId.value
+  const slot = selectedSlot.value
+  if (!groupId || !slot || slot.request !== searchRequest) {
+    bookingError.value = 'Choose a shared time on the grid first.'
     return
   }
   const title = booking.title.trim()
@@ -482,129 +367,202 @@ async function bookMeeting() {
     bookingError.value = 'Give the meeting a title of at least 2 characters.'
     return
   }
-  if (!booking.date) {
-    bookingError.value = 'Pick a date for the meeting.'
-    return
+  const request = ++bookingRequest
+  const payload = {
+    groupId,
+    title,
+    startAt: slot.startAt,
+    endAt: slot.endAt,
+    assignmentBufferMinutes: Number(draft.assignmentBufferMinutes),
   }
-
-  const startAt = sgStartIso(booking.date, booking.startTime)
-  if (!startAt) {
-    bookingError.value = 'That start time could not be read.'
-    return
-  }
-  const endAt = new Date(
-    Date.parse(startAt) + Number(booking.durationMinutes) * 60000,
-  ).toISOString()
-
+  const isCurrent = () =>
+    !destroyed && request === bookingRequest && groupId === selectedGroupId.value
   bookingBusy.value = true
   try {
-    // Ask the server who is busy before writing anything.
-    const response = await axios.post(`${API_URL}/group-meetings/meetings/preview`, {
-      groupId: selectedGroupId.value,
-      title,
-      startAt,
-      endAt,
-    }, { withCredentials: true })
-    const data = response.data
-    const conflicts = data.conflicts || []
-    const searched = matchResult.value?.status === 'ok'
-    const sharedFree = searched && isInsideSharedFreeBlock(startAt, endAt)
-
-    // A time outside the shared result is not the same as a free time: 04:00 has
-    // no busy interval for anyone, yet nobody is available either.
-    if (conflicts.length || !sharedFree) {
-      bookingConfirm.value = {
-        title,
-        startAt,
-        endAt,
-        conflicts,
-        reason: conflicts.length ? 'busy' : searched ? 'outside' : 'unsearched',
-      }
-      // Release the busy state first: the dialog button is disabled while it is
-      // set, and a disabled button cannot take focus.
-      bookingBusy.value = false
-      await nextTick()
-      confirmButton.value?.focus()
+    const preview = await axios.post(`${API_URL}/group-meetings/meetings/preview`, payload, {
+      withCredentials: true,
+    })
+    if (!isCurrent() || slot.request !== searchRequest) return
+    if (preview.data.conflicts?.length) {
+      bookingError.value =
+        'A calendar changed and this time is no longer free. Choose another shared time.'
+      selectedSlot.value = null
+      await findCommonTime({ quiet: true })
       return
     }
-
-    await submitBooking({ title, startAt, endAt, force: false })
+    const { data } = await axios.post(
+      `${API_URL}/group-meetings/meetings`,
+      {
+        ...payload,
+        force: false,
+      },
+      { withCredentials: true },
+    )
+    if (!isCurrent()) return
+    selectedSlot.value = null
+    booking.title = ''
+    bookingNotice.value = `“${data.meeting.title}” is booked for ${formatDay(sgDate(data.meeting.startAt))}, ${formatRange(data.meeting.startAt, data.meeting.endAt)}. It is on everyone’s dashboard calendar now.`
+    await loadGroupState({ silent: true })
+    if (!isCurrent()) return
+    await findCommonTime({ quiet: true })
+    if (!isCurrent()) return
+    await nextTick()
+    revealElement(meetingsSection.value)
   } catch (error) {
+    if (!isCurrent()) return
     bookingError.value = messageOf(error)
+    if (error?.response?.status === 409) {
+      selectedSlot.value = null
+      await findCommonTime({ quiet: true })
+    }
   } finally {
-    bookingBusy.value = false
+    if (isCurrent()) bookingBusy.value = false
   }
 }
-
-/** The dialog was accepted: book it, overriding the clash if there was one. */
-async function confirmBooking() {
-  const pending = bookingConfirm.value
-  if (!pending) return
-
-  await submitBooking({
-    title: pending.title,
-    startAt: pending.startAt,
-    endAt: pending.endAt,
-    force: pending.conflicts.length > 0,
-  })
-}
-
-/** The booker and the group owner can cancel; the server enforces the same rule. */
 function canCancelMeeting(meeting) {
   return meeting.isMine === true || selectedGroup.value?.isOwner === true
 }
-
 async function cancelMeeting(meeting) {
+  const groupId = selectedGroupId.value
+  const action = `cancel-meeting:${meeting.id}`
+  if (busyAction.value === action) return
   actionError.value = ''
   actionNotice.value = ''
-  busyAction.value = `cancel-meeting:${meeting.id}`
+  busyAction.value = action
   try {
-    await axios.delete(`${API_URL}/group-meetings/meetings/${meeting.id}`, { withCredentials: true })
-    actionNotice.value =
-      `"${meeting.title}" is cancelled. That slot is free again and the meeting is off your ` +
-      'Dashboard timeline.'
+    await axios.delete(`${API_URL}/group-meetings/meetings/${encodeURIComponent(meeting.id)}`, {
+      withCredentials: true,
+    })
+    if (destroyed) return
+    bookingNotice.value = ''
+    actionNotice.value = `“${meeting.title}” was cancelled and removed from the team's dashboard calendars.`
     confirmingMeetingId.value = ''
-    await loadGroupState()
-    // The freed slot can be booked again, so refresh the result silently.
-    if (matchResult.value) await findCommonTime({ quiet: true })
+    await loadGroupState({ silent: true })
+    if (groupId === selectedGroupId.value) await findCommonTime({ quiet: true })
   } catch (error) {
-    actionError.value = messageOf(error)
+    if (!destroyed) actionError.value = messageOf(error)
   } finally {
-    busyAction.value = ''
+    if (busyAction.value === action) busyAction.value = ''
   }
 }
 
-/* ------------------------------------------------------------------ *
- * Invitations and sharing
- * ------------------------------------------------------------------ */
-
-async function respond(invitation, action) {
+function trapDialogTab(event, dialog) {
+  if (event.key !== 'Tab') return
+  const controls = [
+    ...dialog.querySelectorAll(
+      'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled)',
+    ),
+  ]
+  const first = controls[0]
+  const last = controls[controls.length - 1]
+  if (
+    !first ||
+    (event.shiftKey && document.activeElement === first) ||
+    (!event.shiftKey && document.activeElement === last)
+  ) {
+    event.preventDefault()
+    if (first) (event.shiftKey ? last : first).focus()
+  }
+}
+function toggleBell() {
+  bellOpen.value = !bellOpen.value
+}
+function onInvitationKeydown(event) {
+  if (!bellOpen.value || !bellPanel.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    bellOpen.value = false
+  } else trapDialogTab(event, bellPanel.value)
+}
+watch(bellOpen, async (open) => {
+  if (open) {
+    document.addEventListener('keydown', onInvitationKeydown)
+    await nextTick()
+    bellPanel.value?.querySelector('button:not(:disabled)')?.focus()
+  } else {
+    document.removeEventListener('keydown', onInvitationKeydown)
+    await nextTick()
+    bellButton.value?.focus()
+  }
+})
+function closeLeaveDialog() {
+  if (leaving.value) return
+  confirmingLeave.value = false
+  nextTick(() => document.getElementById('gm-leave-group')?.focus())
+}
+function onLeaveDialogKeydown(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeLeaveDialog()
+  } else trapDialogTab(event, event.currentTarget)
+}
+watch(confirmingLeave, async (open) => {
+  if (open) {
+    leaveError.value = ''
+    await nextTick()
+    cancelLeaveButton.value?.focus()
+  }
+})
+async function leaveGroup() {
+  if (leaving.value || !selectedGroup.value) return
+  const group = selectedGroup.value
+  leaving.value = true
+  leaveError.value = ''
   actionError.value = ''
   actionNotice.value = ''
-  busyAction.value = `${action}:${invitation.id}`
   try {
-    await axios.post(`${API_URL}/group-meetings/invitations/${invitation.id}/${action}`, { withCredentials: true })
+    const { data } = await axios.post(
+      `${API_URL}/group-meetings/groups/${encodeURIComponent(group.id)}/leave`,
+      {},
+      { withCredentials: true },
+    )
+    if (destroyed) return
+    if (group.id === selectedGroupId.value) await returnToGroups()
+    await loadGroupState({ silent: true })
+    actionNotice.value =
+      `You left ${group.name}.` + (data.deleted ? ' The empty group was closed.' : '')
+  } catch (error) {
+    if (!destroyed) leaveError.value = messageOf(error)
+  } finally {
+    leaving.value = false
+  }
+}
+async function respond(invitation, action) {
+  const pending = `${action}:${invitation.id}`
+  if (busyAction.value === pending) return
+  actionError.value = ''
+  actionNotice.value = ''
+  busyAction.value = pending
+  try {
+    await axios.post(
+      `${API_URL}/group-meetings/invitations/${encodeURIComponent(invitation.id)}/${action}`,
+      {},
+      { withCredentials: true },
+    )
+    if (destroyed) return
     const labels = {
       accept: `You joined ${invitation.groupName}.`,
       decline: `You declined the invitation to ${invitation.groupName}.`,
       cancel: `Invitation to ${invitation.toUserName} cancelled.`,
     }
+    if (action === 'accept') bellOpen.value = false
+    if ((await loadGroupState({ silent: true })) && action === 'accept')
+      await openGroup(invitation.groupId)
     actionNotice.value = labels[action]
-    await loadGroupState()
-    matchResult.value = null
   } catch (error) {
-    actionError.value = messageOf(error)
+    if (!destroyed) actionError.value = messageOf(error)
   } finally {
-    busyAction.value = ''
+    if (busyAction.value === pending) busyAction.value = ''
   }
 }
-
 async function sendInvitation() {
+  if (busyAction.value === 'invite') return
   inviteError.value = ''
   inviteNotice.value = ''
   const email = inviteEmail.value.trim()
-
-  if (!inviteGroupId.value) {
+  const groupId = inviteGroupId.value
+  const name = inviteGroup.value?.name || 'the group'
+  if (!groupId) {
     inviteError.value = 'Choose the group to invite into.'
     return
   }
@@ -612,26 +570,27 @@ async function sendInvitation() {
     inviteError.value = 'Enter the email address of a classmate who has an account.'
     return
   }
-
   busyAction.value = 'invite'
   try {
-    await axios.post(`${API_URL}/group-meetings/invitations`, {
-      groupId: inviteGroupId.value,
-      email,
-    }, { withCredentials: true })
-    inviteNotice.value =
-      `Invitation sent to ${email} for ${inviteGroup.value?.name || 'the group'}. ` +
-      'They become a member only after accepting.'
-    inviteEmail.value = ''
-    await loadGroupState()
+    await axios.post(
+      `${API_URL}/group-meetings/invitations`,
+      { groupId, email },
+      { withCredentials: true },
+    )
+    if (destroyed) return
+    if (groupId === inviteGroupId.value) {
+      inviteNotice.value = `Invitation sent to ${email} for ${name}. They become a member after accepting.`
+      inviteEmail.value = ''
+    }
+    await loadGroupState({ silent: true })
   } catch (error) {
-    inviteError.value = messageOf(error)
+    if (!destroyed && groupId === inviteGroupId.value) inviteError.value = messageOf(error)
   } finally {
-    busyAction.value = ''
+    if (busyAction.value === 'invite') busyAction.value = ''
   }
 }
-
 async function createGroup() {
+  if (busyAction.value === 'create') return
   newGroupError.value = ''
   actionError.value = ''
   const name = newGroupName.value.trim()
@@ -639,774 +598,2452 @@ async function createGroup() {
     newGroupError.value = 'Give the group a name of at least 2 characters.'
     return
   }
-
   busyAction.value = 'create'
   try {
-    const response = await axios.post(`${API_URL}/group-meetings/groups`, { name }, { withCredentials: true })
-    const data = response.data
+    const { data } = await axios.post(
+      `${API_URL}/group-meetings/groups`,
+      { name },
+      { withCredentials: true },
+    )
+    if (destroyed) return
     newGroupName.value = ''
-    await loadGroupState()
-    selectedGroupId.value = data.group.id
-    actionNotice.value = `${name} created. Invite teammates to get started.`
+    if (await loadGroupState({ silent: true })) await openGroup(data.group.id)
+    actionNotice.value = `${name} created. Share the group code or invite teammates to get started.`
   } catch (error) {
-    newGroupError.value = messageOf(error)
+    if (!destroyed) newGroupError.value = messageOf(error)
   } finally {
-    busyAction.value = ''
+    if (busyAction.value === 'create') busyAction.value = ''
   }
 }
-
+async function joinWithCode() {
+  if (joining.value) return
+  joinError.value = ''
+  actionNotice.value = ''
+  actionError.value = ''
+  const code = joinCode.value.trim().toUpperCase()
+  if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) {
+    joinError.value = 'Enter the 8-character group code from your teammate.'
+    return
+  }
+  joining.value = true
+  try {
+    const { data } = await axios.post(
+      `${API_URL}/group-meetings/groups/join`,
+      { code },
+      { withCredentials: true },
+    )
+    if (destroyed) return
+    if (await loadGroupState({ silent: true })) await openGroup(data.group.id)
+    joinCode.value = ''
+    actionNotice.value = `You joined ${data.group.name}.`
+  } catch (error) {
+    if (!destroyed) joinError.value = messageOf(error)
+  } finally {
+    joining.value = false
+  }
+}
+async function copyGroupCode() {
+  const group = selectedGroup.value
+  if (!group) return
+  copyNotice.value = ''
+  try {
+    await navigator.clipboard.writeText(group.joinCode)
+    if (!destroyed && selectedGroupId.value === group.id) copyNotice.value = 'Code copied.'
+  } catch {
+    if (!destroyed && selectedGroupId.value === group.id)
+      copyNotice.value = 'Select the code above and copy it to share with a teammate.'
+  }
+}
 async function joinDemoGroup() {
+  if (busyAction.value === 'demo') return
   actionError.value = ''
   busyAction.value = 'demo'
   try {
-    const response = await axios.post(`${API_URL}/group-meetings/demo-group/join`, { withCredentials: true })
-    const data = response.data
-    await loadGroupState()
-    selectedGroupId.value = data.group.id
+    const { data } = await axios.post(
+      `${API_URL}/group-meetings/demo-group/join`,
+      {},
+      { withCredentials: true },
+    )
+    if (destroyed) return
+    if (await loadGroupState({ silent: true })) await openGroup(data.group.id)
     actionNotice.value = 'You joined the demo group.'
   } catch (error) {
-    actionError.value = messageOf(error)
+    if (!destroyed) actionError.value = messageOf(error)
   } finally {
-    busyAction.value = ''
+    if (busyAction.value === 'demo') busyAction.value = ''
   }
 }
+onMounted(() => loadGroupState())
+onBeforeUnmount(() => {
+  destroyed = true
+  stateRequest++
+  searchRequest++
+  bookingRequest++
+  clearTimeout(refreshTimer)
+  document.removeEventListener('keydown', onInvitationKeydown)
+})
 </script>
 
 <template>
   <div class="app gm-app">
-    <PlannerNavigation active="/groupwork"><template #extra><button ref="bellButton" type="button" class="gm-bell"
-        :class="{ 'gm-bell-open': bellOpen, 'gm-bell-alert': pendingCount > 0 }"
-        :aria-expanded="bellOpen" aria-haspopup="dialog" @click="toggleBell">
-        <PlannerIcon name="bell" />
-        <span>Invitations</span>
-        <span v-if="pendingCount" class="gm-bell-dot" aria-hidden="true"></span>
-        <span class="gm-sr-only">{{ pendingCount }} awaiting response</span>
-      </button></template></PlannerNavigation>
-
-    <main class="main gm-page">
-      <div class="container-xxl">
-        <PlannerNavigation active="/groupwork" mobile><template #extra><button ref="mobileBellButton" type="button" class="btn btn-sm btn-outline-secondary gm-bell-mobile"
-            :class="{ 'gm-bell-alert': pendingCount > 0 }" :aria-expanded="bellOpen" @click="toggleBell">
-            <PlannerIcon name="bell" /> Invitations
-            <span v-if="pendingCount" class="gm-bell-dot gm-bell-dot-inline" aria-hidden="true"></span>
-          </button></template></PlannerNavigation>
-
-        <header class="header gm-header">
-          <div>
-            <p class="gm-eyebrow">PLAN TOGETHER</p>
-            <h1>Group Meetings</h1>
-            <p>Connect your schedules, find a time that works, then book it.</p>
+    <PlannerNavigation active="/groupwork" />
+    <main class="main gm-main">
+      <div class="gm-wrap">
+        <PlannerNavigation active="/groupwork" mobile />
+        <nav class="gm-topbar" aria-label="Group navigation">
+          <div class="gm-backlinks">
+            <button
+              v-if="selectedGroup"
+              type="button"
+              class="gm-text-button"
+              @click="returnToGroups"
+            >
+              <PlannerIcon name="left" /> Back to groups
+            </button>
+            <RouterLink to="/dashboard" class="gm-text-button">Back to dashboard</RouterLink>
           </div>
-          <span class="badge rounded-pill gm-phase">
-            {{ groups.length ? 'Live group data' : 'No group yet' }}
-          </span>
+          <button
+            ref="bellButton"
+            type="button"
+            class="gm-notification-button"
+            :aria-expanded="bellOpen"
+            @click="toggleBell"
+          >
+            <PlannerIcon name="bell" /> Invitations
+            <span v-if="pendingCount" class="gm-count">{{ pendingCount }}</span>
+          </button>
+        </nav>
+
+        <header class="gm-hero" :class="{ 'gm-hero-detail': selectedGroup }">
+          <div class="gm-hero-copy">
+            <p class="gm-kicker">
+              {{
+                selectedGroup
+                  ? 'YOUR PEOPLE. ONE PERFECT TIME.'
+                  : 'LESS BACK-AND-FORTH. MORE TOGETHER.'
+              }}
+            </p>
+            <h1 ref="pageHeading" tabindex="-1">{{ selectedGroup?.name || 'Group Meetings' }}</h1>
+            <p class="gm-intro">
+              {{
+                selectedGroup
+                  ? 'Your schedules, already compared. Find the overlap and make it a date.'
+                  : 'Good things happen when your calendars align. Bring your people, we’ll find the time.'
+              }}
+            </p>
+            <div v-if="selectedGroup" class="gm-hero-meta">
+              <span class="gm-dot"></span>{{ members.length }}
+              {{ members.length === 1 ? 'member' : 'members' }}<span>/</span>Singapore time · UTC+8
+            </div>
+            <div v-else class="gm-journey">
+              <span><b>01</b> Gather your people</span><i></i><span><b>02</b> Find the overlap</span
+              ><i></i><span><b>03</b> Make a plan</span>
+            </div>
+          </div>
+          <div v-if="!selectedGroup" class="gm-hero-art" aria-hidden="true">
+            <div class="gm-orbit gm-orbit-one"></div>
+            <div class="gm-orbit gm-orbit-two"></div>
+            <div class="gm-mini-calendar">
+              <span class="gm-mini-dots">● ● ●</span><strong>A little room for everyone.</strong>
+              <div>
+                <i
+                  v-for="n in 28"
+                  :key="n"
+                  :class="{ free: [3, 4, 9, 10, 11, 16, 17, 18, 24, 25].includes(n) }"
+                ></i>
+              </div>
+              <small><span></span> That’s your sweet spot.</small>
+            </div>
+            <span class="gm-art-spark">✳</span>
+          </div>
+          <div v-else class="gm-share-card">
+            <span>INVITE YOUR PEOPLE</span>
+            <div>
+              <code class="gm-group-code" aria-label="Group join code">{{
+                selectedGroup.joinCode
+              }}</code
+              ><button type="button" class="gm-copy-button" @click="copyGroupCode">
+                Copy code
+              </button>
+            </div>
+            <small role="status">{{
+              copyNotice || 'Share the code. Their calendar does the rest.'
+            }}</small>
+          </div>
         </header>
 
-        <div v-if="loadError" class="alert alert-danger" role="alert">
-          {{ loadError }} Start the backend on port 8000, sign in, then reload this page.
+        <div v-if="actionNotice" class="gm-message gm-success" role="status">
+          {{ actionNotice }}
         </div>
-        <div v-if="actionNotice" class="alert alert-success" role="status">{{ actionNotice }}</div>
-        <div v-if="actionError" class="alert alert-warning" role="alert">{{ actionError }}</div>
-
-        <div v-if="loading" class="gm-empty" role="status">
-          <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
-          Loading your groups...
+        <div v-if="actionError || loadError" class="gm-message gm-error" role="alert">
+          {{ actionError || loadError
+          }}<button v-if="loadError" type="button" @click="refreshSchedules">Try again</button>
+        </div>
+        <div v-if="loading" class="gm-loading" role="status">
+          <span class="gm-spinner"></span> Gathering your groups…
         </div>
 
         <template v-else-if="state">
-          <!-- First run: no group yet -->
-          <section v-if="!groups.length" class="card gm-card gm-onboarding" aria-labelledby="gm-start-title">
-            <div class="card-body">
-              <h2 id="gm-start-title">Start a group</h2>
-              <p class="gm-help">
-                A group is the set of people whose calendars are compared. Create one and invite
-                teammates by the email address they registered with.
-              </p>
-              <div class="row g-3 align-items-end">
-                <div class="col-12 col-md-6">
-                  <label for="gm-first-group" class="form-label">Group name</label>
-                  <input id="gm-first-group" v-model="newGroupName" class="form-control"
-                    placeholder="e.g. IS216 project team" maxlength="80" />
+          <template v-if="!selectedGroup">
+            <section class="gm-circles" aria-labelledby="gm-groups-title">
+              <div class="gm-section-heading">
+                <div>
+                  <p class="gm-kicker">BETTER WITH YOUR PEOPLE</p>
+                  <h2 id="gm-groups-title">
+                    Your groups <span>{{ groups.length }}</span>
+                  </h2>
                 </div>
-                <div class="col-12 col-md-6 d-flex flex-wrap gap-2">
-                  <button type="button" class="btn btn-primary" :disabled="busyAction === 'create'"
-                    @click="createGroup">
-                    {{ busyAction === 'create' ? 'Creating...' : 'Create group' }}
-                  </button>
-                  <button v-if="canJoinDemo" type="button" class="btn btn-outline-secondary"
-                    :disabled="busyAction === 'demo'" @click="joinDemoGroup">
-                    {{ busyAction === 'demo' ? 'Joining...' : 'Join demo group' }}
-                  </button>
-                </div>
+                <span class="gm-soft-label">A shared space for every team</span>
               </div>
-              <p v-if="newGroupError" class="text-danger gm-help mt-2 mb-0" role="alert">{{ newGroupError }}</p>
-              <p v-if="canJoinDemo" class="gm-help mt-3 mb-0">
-                The demo group comes with three seeded members and sample calendars, so matching can be
-                tried immediately.
-              </p>
-            </div>
-          </section>
-
-          <template v-if="groups.length">
-            <section class="row g-3 mb-4" aria-label="Group summary">
-              <div class="col-12 col-sm-6 col-xl-4">
-                <div class="gm-summary h-100">
-                  <span>Your groups</span>
-                  <strong>{{ groups.length }}</strong>
-                  <small>{{ selectedGroup?.name || 'None selected' }}</small>
-                </div>
-              </div>
-              <div class="col-12 col-sm-6 col-xl-4">
-                <!-- Desktop: plain summary box (names are in the Members card) -->
-                <div class="d-none d-xl-block h-100">
-                  <div class="gm-summary h-100">
-                    <span>Members in this group</span>
-                    <strong>{{ members.length }}</strong>
-                    <small>{{ selectedGroup?.isOwner ? 'You own this group' : 'Member' }}</small>
+              <ul v-if="groups.length" class="gm-group-list">
+                <li
+                  v-for="(group, index) in groups"
+                  :key="group.id"
+                  class="gm-group-card"
+                  :class="`gm-tone-${index % 3}`"
+                >
+                  <div class="gm-group-card-top">
+                    <span class="gm-group-mark"><PlannerIcon name="users" /></span
+                    ><span class="gm-role">{{
+                      group.isOwner ? 'You’re the owner' : 'Member'
+                    }}</span>
                   </div>
-                </div>
-                <!-- Mobile: tap the box to show the member names -->
-                <div class="d-xl-none h-100">
-                  <details class="gm-summary h-100">
-                    <summary class="d-block">
-                      <span class="d-block">Members in this group</span>
-                      <strong class="d-block">{{ members.length }}</strong>
-                      <small class="d-block">{{ selectedGroup?.isOwner ? 'You own this group' : 'Member' }} ▾</small>
-                    </summary>
-                    <ul class="list-unstyled border-top mt-3 pt-2 mb-0">
-                      <li v-for="member in members" :key="member.id" class="py-1">
-                        <strong>{{ member.name }}</strong>
-                        <small class="d-block">
-                          <span v-if="member.isOwner">Owner</span>
-                          <span v-if="member.isViewer"><span v-if="member.isOwner"> · </span>You</span>
-                          <span v-if="member.scheduleStatus !== 'complete'"> · Calendar incomplete</span>
-                        </small>
-                      </li>
-                    </ul>
-                  </details>
-                </div>
-              </div>
-              <div class="col-12 col-sm-6 col-xl-4">
-                <div class="gm-summary h-100">
-                  <span>Meetings booked</span>
-                  <strong>{{ groupMeetings.length }}</strong>
-                  <small>{{ matchReady ? 'Matching can run' : 'No members yet' }}</small>
-                </div>
+                  <h3>{{ group.name }}</h3>
+                  <p>
+                    {{ group.members.length }}
+                    {{ group.members.length === 1 ? 'member' : 'members' }} · Your next plan starts
+                    here
+                  </p>
+                  <div class="gm-group-card-footer">
+                    <div class="gm-avatars" aria-hidden="true">
+                      <span
+                        v-for="(member, i) in group.members.slice(0, 4)"
+                        :key="member.id"
+                        :class="`gm-avatar-${i % 4}`"
+                        >{{ initials(member.name) }}</span
+                      ><span v-if="group.members.length > 4">+{{ group.members.length - 4 }}</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="gm-open-button"
+                      :aria-label="`Open ${group.name}`"
+                      @click="openGroup(group.id)"
+                    >
+                      Open group <PlannerIcon name="arrow" />
+                    </button>
+                  </div>
+                </li>
+              </ul>
+              <div v-else class="gm-empty-team">
+                <span class="gm-empty-mark"><PlannerIcon name="users" /></span>
+                <h3>A good plan starts with a few good people.</h3>
+                <p>Create your first group below, or jump in with a teammate’s code.</p>
               </div>
             </section>
-
-            <div class="row g-4">
-              <div class="col-12 col-xl-8 gm-column">
-                <!-- Booked meetings: first, because booking several is the point -->
-                <section ref="meetingsSection" class="card gm-card gm-meetings"
-                  :class="{ 'gm-card-flash': flashTarget === 'meetings' }" aria-labelledby="gm-meetings-title">
-                  <div class="card-body">
-                    <div class="section-heading mb-3">
-                      <div>
-                        <h2 id="gm-meetings-title">Meetings in this group</h2>
-                        <p class="gm-help mb-0">
-                          Booked meetings block their slot for every participant in later searches.
-                        </p>
-                      </div>
-                      <span class="badge rounded-pill gm-invitation-accepted">
-                        {{ groupMeetings.length }} booked
-                      </span>
-                    </div>
-
-                    <p v-if="!groupMeetings.length" class="gm-help mb-0">
-                      No meeting has been booked in this group yet. Book one below and it also appears
-                      on your Dashboard timeline.
-                    </p>
-
-                    <article v-for="meeting in groupMeetings" :key="meeting.id" class="gm-meeting-row">
-                      <div class="gm-meeting-time">
-                        <strong>{{ formatTime(meeting.startAt) }}</strong>
-                        <small>{{ formatDay(sgDate(meeting.startAt)) }}</small>
-                      </div>
-                      <div class="gm-record">
-                        <strong>{{ meeting.title }}</strong>
-                        <p class="gm-help mb-0">
-                          {{ formatRange(meeting.startAt, meeting.endAt) }} ·
-                          {{ meeting.participantIds.length }} participants
-                          <span v-if="meeting.createdByName">
-                            · booked by {{ meeting.isMine ? 'you' : meeting.createdByName }}
-                          </span>
-                        </p>
-                      </div>
-                      <div class="gm-meeting-actions">
-                        <template v-if="confirmingMeetingId === meeting.id">
-                          <span class="gm-help">Cancel this meeting?</span>
-                          <button type="button" class="btn btn-sm btn-danger"
-                            :disabled="busyAction === `cancel-meeting:${meeting.id}`"
-                            @click="cancelMeeting(meeting)">
-                            {{ busyAction === `cancel-meeting:${meeting.id}` ? 'Cancelling...' : 'Yes, cancel' }}
-                          </button>
-                          <button type="button" class="btn btn-sm btn-outline-secondary"
-                            @click="confirmingMeetingId = ''">
-                            Keep it
-                          </button>
-                        </template>
-                        <template v-else>
-                          <span v-if="meeting.forced" class="badge rounded-pill gm-invitation-pending"
-                            title="Booked despite a clash with someone's calendar">overlap</span>
-                          <span class="badge rounded-pill gm-invitation-accepted">{{ meeting.status }}</span>
-                          <button v-if="canCancelMeeting(meeting)" type="button"
-                            class="btn btn-sm btn-outline-secondary"
-                            @click="confirmingMeetingId = meeting.id">
-                            Cancel meeting
-                          </button>
-                        </template>
-                      </div>
-                    </article>
-
-                    <p class="gm-help mt-3 mb-0">
-                      The person who booked a meeting, and the group owner, can cancel it. Cancelling
-                      frees the slot again and removes it from the Dashboard timeline.
-                    </p>                  </div>
-                </section>
-
-                <!-- Search + result + booking, all in one card -->
-                <section id="gm-common-times" class="card gm-card gm-results"
-                  :class="{ 'gm-card-flash': flashTarget === 'results' }" aria-labelledby="gm-common-title">
-                  <div class="card-body">
-                    <div class="section-heading mb-3">
-                      <div>
-                        <h2 id="gm-common-title">Find a common time</h2>
-                        <p class="gm-help mb-0">
-                          Search the window, then book the slot you want. Times are Singapore time.
-                        </p>
-                      </div>
-                      <span class="badge rounded-pill"
-                        :class="matchResult?.status === 'ok' ? 'gm-invitation-accepted' : 'gm-unknown'">
-                        {{ matchResult?.status === 'ok' ? `${matchResult.totalSlots} slots` : 'Not calculated' }}
-                      </span>
-                    </div>
-
-                    <form class="row g-2 align-items-end" @submit.prevent="findCommonTime()">
-                      <div class="col-12 col-md-4">
-                        <label for="gm-group" class="form-label">Group</label>
-                        <select id="gm-group" v-model="selectedGroupId" class="form-select">
-                          <option v-for="group in groups" :key="group.id" :value="group.id">
-                            {{ group.name }}
-                          </option>
-                        </select>
-                      </div>
-                      <div class="col-6 col-md-4">
-                        <label for="gm-from" class="form-label">From date</label>
-                        <input id="gm-from" v-model="draft.fromDate" type="date" class="form-control" />
-                      </div>
-                      <div class="col-6 col-md-4">
-                        <label for="gm-to" class="form-label">To date</label>
-                        <input id="gm-to" v-model="draft.toDate" type="date" class="form-control" />
-                      </div>
-                      <div class="col-6 col-md-2">
-                        <label for="gm-start" class="form-label">Earliest time</label>
-                        <input id="gm-start" v-model="draft.startTime" type="time" class="form-control" />
-                      </div>
-                      <div class="col-6 col-md-2">
-                        <label for="gm-end" class="form-label">Latest time</label>
-                        <input id="gm-end" v-model="draft.endTime" type="time" class="form-control" />
-                      </div>
-                      <div class="col-12 col-md-3">
-                        <label for="gm-duration" class="form-label">Meeting length</label>
-                        <select id="gm-duration" v-model="draft.durationMinutes" class="form-select">
-                          <option value="30">30 minutes</option>
-                          <option value="60">60 minutes</option>
-                          <option value="90">90 minutes</option>
-                        </select>
-                      </div>
-                      <div class="col-12 col-md-5">
-                        <button type="submit" class="btn btn-primary w-100" :disabled="matching">
-                          {{ matching ? 'Searching...' : 'Find common time' }}
-                        </button>
-                      </div>
-                    </form>
-
-                    <!-- Nothing is shown until a search has been run: an empty
-                         "result" block above the booking form was just noise. -->
-                    <div v-if="matching || matchError || matchResult" ref="resultsAnchor" tabindex="-1"
-                      class="gm-result-area">
-                      <div class="section-heading mb-2">
-                        <h3 class="gm-subheading mb-0">Result</h3>
-                      </div>
-
-                      <div v-if="matching" class="gm-empty" role="status">
-                        <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
-                        Comparing calendars...
-                      </div>
-
-                      <div v-else-if="matchError" class="alert alert-danger mb-0" role="alert">
-                        {{ matchError }}
-                      </div>
-
-                      <div v-else-if="matchResult.status === 'blocked'" class="alert alert-warning mb-0"
-                        role="alert">
-                        <strong>Availability is unknown for {{ matchResult.blockers.length }}
-                          {{ matchResult.blockers.length === 1 ? 'member' : 'members' }}.</strong>
-                        <p class="mb-2">No result is produced while information is missing, because a
-                          missing calendar is not the same as a free calendar.</p>
-                        <ul class="mb-0">
-                          <li v-for="blocker in matchResult.blockers" :key="blocker.userId">
-                            <strong>{{ blocker.name }}</strong> — {{ blocker.message }}
-                            <span class="badge rounded-pill gm-unknown ms-1">{{ blockerLabel(blocker.reason) }}</span>
-                          </li>
-                        </ul>
-                      </div>
-
-                      <div v-else-if="!matchResult.totalSlots" class="gm-empty gm-pending">
-                        <strong>No shared window of {{ matchResult.window.durationMinutes }} minutes.</strong>
-                        <p class="gm-help mb-0">
-                          Everyone's calendars were compared and nothing fits. Try a shorter meeting,
-                          a wider time window, or more days.
-                        </p>
-                      </div>
-
-                      <template v-else>
-                        <div class="gm-best">
-                          <span>Best match</span>
-                          <strong>{{ formatDay(matchResult.best.date) }}</strong>
-                          <p class="mb-0">{{ formatRange(matchResult.best.startAt, matchResult.best.endAt) }}
-                            <span class="gm-help">· Singapore time</span></p>
-                          <button type="button" class="btn btn-sm btn-primary mt-2"
-                            @click="pickSlot(matchResult.best.date, matchResult.best)">
-                            Select this time
-                          </button>
-                        </div>
-
-                        <div v-for="day in matchResult.days" :key="day.date" class="gm-day">
-                          <div class="gm-day-head">
-                            <strong>{{ formatDay(day.date) }}</strong>
-                            <small class="gm-help">
-                              {{ day.freeMinutes }} free minutes together ·
-                              {{ day.blocks.reduce((total, block) => total + block.slots.length, 0) }}
-                              possible {{ day.blocks.reduce((total, block) => total + block.slots.length, 0) === 1 ? 'start' : 'starts' }}
-                            </small>
-                          </div>
-                          <p v-if="!day.blocks.length" class="gm-help mb-0">No shared window long enough on this day.</p>
-                          <div v-for="block in day.blocks" :key="block.startAt" class="gm-block">
-                            <div class="gm-block-range">
-                              <strong>{{ formatRange(block.startAt, block.endAt) }}</strong>
-                              <small class="gm-help">everyone free · {{ block.lengthMinutes }} min ·
-                                fits {{ block.maxMeetings }}</small>
-                            </div>
-                            <div class="gm-slot-list">
-                              <button v-for="slot in block.slots.slice(0, 8)" :key="slot.startAt"
-                                type="button" class="gm-slot"
-                                :class="{ 'gm-slot-tight': slot.startsRightAfterBusy, 'gm-slot-picked': isPickedSlot(day.date, slot) }"
-                                :aria-pressed="isPickedSlot(day.date, slot)"
-                                :aria-label="`Select ${formatTime(slot.startAt)} on ${formatDay(day.date)}`"
-                                @click="pickSlot(day.date, slot)">
-                                <span class="gm-slot-time">{{ formatTime(slot.startAt) }}</span>
-                                <span class="gm-slot-action">
-                                  {{ isPickedSlot(day.date, slot) ? 'Selected' : 'Select' }}
-                                </span>
-                              </button>
-                              <span v-if="block.slots.length > 8" class="gm-slot gm-slot-more">
-                                +{{ block.slots.length - 8 }} more
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <p class="gm-help mt-3 mb-0">
-                          Every chip is a start time on a {{ matchResult.window.stepMinutes }} minute grid.
-                          Press <strong>Select</strong> to copy that time into the booking form below.
-                          A shaded chip starts the moment someone's previous commitment ends.
-                        </p>
-                      </template>
-                    </div>
-
-                    <!-- Booking is always available, searched or not -->
-                    <div ref="bookingAnchor" tabindex="-1" class="gm-booking">
-                        <div class="section-heading mb-2">
-                          <h3 class="gm-subheading mb-0">Book a meeting</h3>
-                          <span class="gm-help">{{ members.length }} participants · Singapore time</span>
-                        </div>
-                        <div class="row g-2 align-items-end">
-                          <div class="col-12 col-lg-4">
-                            <label for="gm-book-title" class="form-label">Meeting title</label>
-                            <input id="gm-book-title" v-model="booking.title" class="form-control"
-                              maxlength="80" :placeholder="bookingPlaceholder" />
-                          </div>
-                          <div class="col-6 col-lg-3">
-                            <label for="gm-book-date" class="form-label">Date</label>
-                            <input id="gm-book-date" v-model="booking.date" type="date" class="form-control" />
-                          </div>
-                          <div class="col-6 col-lg-2">
-                            <label for="gm-book-start" class="form-label">Start</label>
-                            <input id="gm-book-start" v-model="booking.startTime" type="time" class="form-control" />
-                          </div>
-                          <div class="col-12 col-lg-3">
-                            <label for="gm-book-length" class="form-label">Length</label>
-                            <select id="gm-book-length" v-model="booking.durationMinutes" class="form-select">
-                              <option value="30">30 minutes</option>
-                              <option value="60">60 minutes</option>
-                              <option value="90">90 minutes</option>
-                            </select>
-                          </div>
-                          <div class="col-12">
-                            <button type="button" class="btn btn-primary w-100"
-                              :disabled="bookingBusy" @click="bookMeeting">
-                              {{ bookingBusy ? 'Booking...' : 'Book this meeting' }}
-                            </button>
-                          </div>
-                        </div>
-                        <p class="gm-help mt-2 mb-0">
-                          Everyone in the group is invited. The time is checked against every
-                          participant's calendar first, so a clash is refused instead of silently booked.
-                        </p>
-                        <p v-if="bookingError" class="text-danger gm-help mt-2 mb-0" role="alert">
-                          {{ bookingError }}
-                        </p>
-                        <p v-if="bookingNotice" class="text-success gm-help mt-2 mb-0" role="status">
-                          {{ bookingNotice }}
-                          <RouterLink to="/dashboard" class="gm-text-link">Open Dashboard</RouterLink>
-                        </p>
-                      </div>
+            <div class="gm-entry-grid">
+              <section class="gm-panel gm-create-panel" aria-labelledby="gm-start-title">
+                <span class="gm-entry-icon">+</span>
+                <p class="gm-kicker">MAKE ROOM FOR YOUR TEAM</p>
+                <h2 id="gm-start-title">
+                  {{ groups.length ? 'Create a group' : 'Start a group' }}
+                </h2>
+                <p>A project crew, a study circle, or your next big idea. Give it a home.</p>
+                <form @submit.prevent="createGroup">
+                  <label for="gm-first-group">Group name</label>
+                  <div class="gm-input-action">
+                    <input
+                      id="gm-first-group"
+                      v-model="newGroupName"
+                      placeholder="e.g. The deadline dream team"
+                      maxlength="80"
+                    /><button class="gm-button gm-primary" :disabled="busyAction === 'create'">
+                      {{ busyAction === 'create' ? 'Creating…' : 'Create group' }}
+                    </button>
                   </div>
-                </section>
-
-                <!-- Planner source -->
-                <section class="card gm-card" aria-labelledby="gm-source-title">
-                  <div class="card-body">
-                    <div class="section-heading mb-3">
-                      <div>
-                        <h2 id="gm-source-title">Connected schedule source</h2>
-                        <p class="gm-help mb-0">
-                          Read-only coursework and sample activities. Booked group meetings are listed
-                          at the top of this page instead.
-                        </p>
-                      </div>
-                      <button type="button" class="btn btn-outline-secondary btn-sm"
-                        :disabled="plannerLoading" @click="loadPlannerData">
-                        {{ plannerLoading ? 'Loading...' : 'Reload' }}
-                      </button>
-                    </div>
-
-                    <div v-if="plannerLoading" class="gm-empty" role="status">
-                      <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
-                      Loading planner data...
-                    </div>
-                    <div v-else-if="plannerError" class="alert alert-danger mb-0" role="alert">
-                      {{ plannerError }}
-                    </div>
-                    <template v-else>
-                      <p v-if="!sourceActivities.length" class="gm-help mb-0">
-                        No sample activities in the current source.
-                      </p>
-                      <ul v-else class="gm-source-list list-unstyled mb-0">
-                        <li v-for="(activity, index) in sourceActivities" :key="`${activity.id}-${index}`"
-                          class="gm-source-item">
-                          <div class="gm-record">
-                            <strong>{{ activity.title || 'Untitled activity' }}</strong>
-                            <p class="gm-help mb-1">{{ activity.place || 'Location not provided' }}</p>
-                            <p class="gm-time mb-0">
-                              {{ formatDateTime(activity.when) }} &ndash; {{ formatDateTime(activity.end) }}
-                            </p>
-                          </div>
-                          <span class="badge rounded-pill gm-sample">Sample</span>
-                        </li>
-                      </ul>
-                      <div class="gm-context mt-3">
-                        <strong>{{ planner.assignments.length }} assignments / {{ planner.quizzes.length }} quizzes</strong>
-                        <p class="gm-help mb-0">
-                          Due dates are deadlines, not busy intervals, so they are not used for matching.
-                        </p>
-                        <RouterLink to="/assignments" class="gm-text-link">View coursework</RouterLink>
-                      </div>
-                    </template>
+                </form>
+                <p v-if="newGroupError" class="gm-inline-error" role="alert">{{ newGroupError }}</p>
+                <small>You’ll get a code to share as soon as you create it.</small>
+              </section>
+              <section class="gm-panel gm-join-panel" aria-labelledby="gm-join-title">
+                <span class="gm-entry-icon">↗</span>
+                <p class="gm-kicker">YOUR PEOPLE ARE WAITING</p>
+                <h2 id="gm-join-title">Join with code</h2>
+                <p>Already have an invite? Eight characters and you’re part of the plan.</p>
+                <form @submit.prevent="joinWithCode">
+                  <label for="gm-join-code">Group code</label>
+                  <div class="gm-input-action">
+                    <input
+                      id="gm-join-code"
+                      v-model.trim="joinCode"
+                      class="gm-code-input"
+                      placeholder="e.g. ABCD2345"
+                      maxlength="10"
+                      autocomplete="off"
+                      autocapitalize="characters"
+                      :spellcheck="false"
+                      :disabled="joining"
+                      :aria-invalid="Boolean(joinError)"
+                      :aria-describedby="joinError ? 'gm-join-error' : undefined"
+                    /><button class="gm-button gm-dark" :disabled="joining">
+                      {{ joining ? 'Joining…' : 'Join group' }}
+                    </button>
                   </div>
-                </section>
+                </form>
+                <p v-if="joinError" id="gm-join-error" class="gm-inline-error" role="alert">
+                  {{ joinError }}
+                </p>
+                <small>Availability fills itself from your saved schedule.</small>
+              </section>
+            </div>
+            <button
+              v-if="canJoinDemo"
+              class="gm-demo-button"
+              :disabled="busyAction === 'demo'"
+              @click="joinDemoGroup"
+            >
+              Just exploring? Try a demo group <PlannerIcon name="arrow" />
+            </button>
+          </template>
+
+          <template v-else>
+            <div class="gm-group-toolbar">
+              <div>
+                <label for="gm-group">YOUR GROUP</label
+                ><select
+                  id="gm-group"
+                  :value="selectedGroupId"
+                  @change="openGroup($event.target.value)"
+                >
+                  <option v-for="group in groups" :key="group.id" :value="group.id">
+                    {{ group.name }}
+                  </option>
+                </select>
               </div>
-
-              <div class="col-12 col-xl-4 gm-column">
-                <!-- Members -->
-                <section class="card gm-card d-none d-xl-block" aria-labelledby="gm-members-title">
-                  <div class="card-body">
-                    <h2 id="gm-members-title">Members</h2>
-                    <div v-for="member in members" :key="member.id" class="gm-member">
-                      <div class="gm-member-info">
-                        <strong>{{ member.name }}</strong>
-                        <small class="gm-help d-block">
-                          <span v-if="member.isOwner">Owner</span>
-                          <span v-if="member.isViewer"> · You</span>
-                          <span v-if="member.scheduleStatus !== 'complete'"> · Calendar incomplete</span>
-                        </small>
-                      </div>
+              <div class="gm-toolbar-actions">
+                <button
+                  type="button"
+                  class="gm-text-button"
+                  :disabled="matching"
+                  @click="refreshSchedules"
+                >
+                  <span class="gm-refresh-symbol">↻</span> Refresh schedules</button
+                ><button
+                  id="gm-leave-group"
+                  type="button"
+                  class="gm-leave-button"
+                  @click="confirmingLeave = true"
+                >
+                  Leave group
+                </button>
+              </div>
+            </div>
+            <div v-if="members.length === 1" class="gm-solo-note">
+              <span>✳</span>
+              <p>
+                Just you for now. <strong>Share your group code</strong> to find a time with your
+                team.
+              </p>
+            </div>
+            <div class="gm-planner-layout">
+              <div class="gm-planner-main">
+                <section
+                  ref="resultsAnchor"
+                  tabindex="-1"
+                  class="gm-panel gm-availability-panel"
+                  aria-labelledby="gm-availability-title"
+                >
+                  <div class="gm-section-heading">
+                    <div>
+                      <p class="gm-kicker">THE SWEET SPOT</p>
+                      <h2 id="gm-availability-title">
+                        Find your overlap <span class="gm-live-pill">Auto-filled</span>
+                      </h2>
                     </div>
+                    <span class="gm-timezone">SGT / UTC+8</span>
                   </div>
-                </section>
-
-                <!-- Invite -->
-                <!-- Create group -->
-                <section class="card gm-card" aria-labelledby="gm-create-title">
-                  <div class="card-body">
-                    <h2 id="gm-create-title">Create another group</h2>
-                    <label for="gm-new-group" class="form-label">Group name</label>
-                    <input id="gm-new-group" v-model="newGroupName" class="form-control"
-                      placeholder="e.g. Another project group" maxlength="80" />
-                    <button type="button" class="btn btn-outline-secondary mt-3"
-                      :disabled="busyAction === 'create'" @click="createGroup">
-                      {{ busyAction === 'create' ? 'Creating...' : 'Create group' }}
-                    </button>
-                    <p v-if="newGroupError" class="text-danger gm-help mt-2 mb-0" role="alert">{{ newGroupError }}</p>
-                    <p class="gm-help mt-2 mb-0">You become the owner of the group.</p>
-                  </div>
-                </section>
-
-                <!-- Invite -->
-                <section class="card gm-card gm-invite-panel" aria-labelledby="gm-invite-title">
-                  <div class="card-body">
-                    <h2 id="gm-invite-title">Invite people</h2>
-                    <p class="gm-help">The account must already be registered. Pick the group the
-                      invitation belongs to.</p>
-
-                    <label for="gm-invite-group" class="form-label">Group</label>
-                    <select id="gm-invite-group" v-model="inviteGroupId" class="form-select">
-                      <option v-for="group in groups" :key="group.id" :value="group.id">
-                        {{ group.name }}
-                      </option>
-                    </select>
-
-                    <label for="gm-invite-recipient" class="form-label mt-3">Email address</label>
-                    <input id="gm-invite-recipient" v-model="inviteEmail" class="form-control"
-                      type="email" placeholder="teammate@smu.edu.sg" maxlength="160" />
-                    <button type="button" class="btn btn-primary mt-3"
-                      :disabled="busyAction === 'invite'" @click="sendInvitation">
-                      {{ busyAction === 'invite' ? 'Sending...' : 'Send invitation' }}
-                    </button>
-                    <p v-if="inviteError" class="text-danger gm-help mt-2 mb-0" role="alert">{{ inviteError }}</p>
-                    <p v-if="inviteNotice" class="text-success gm-help mt-2 mb-0" role="status">{{ inviteNotice }}</p>
-
-                    <h3 class="gm-subheading mt-4">
-                      Sent invitations in {{ inviteGroup?.name || 'this group' }}
-                    </h3>
-                    <p v-if="!sentInvitations.length" class="gm-help mb-0">
-                      No invitations sent from this group yet.
-                    </p>
-                    <div v-for="invitation in sentInvitations" :key="invitation.id"
-                      class="gm-sent-invitation" :data-invitation-id="invitation.id">
-                      <div class="gm-member-info">
-                        <strong>{{ invitation.toUserName }}</strong>
-                        <small class="gm-help d-block">{{ formatDateTime(invitation.createdAt) }}</small>
+                  <p class="gm-panel-description">
+                    Activities, deadlines, and existing meetings are already taken into account.
+                  </p>
+                  <form class="gm-search-form" @submit.prevent="findCommonTime()">
+                    <div class="gm-date-row">
+                      <div>
+                        <label for="gm-from">From</label
+                        ><input id="gm-from" v-model="draft.fromDate" type="date" />
                       </div>
-                      <span class="badge rounded-pill text-capitalize"
-                        :class="`gm-invitation-${invitation.status}`">{{ invitation.status }}</span>
-                      <button v-if="invitation.status === 'pending'" type="button"
-                        class="btn btn-sm btn-outline-secondary"
-                        :disabled="busyAction === `cancel:${invitation.id}`"
-                        @click="respond(invitation, 'cancel')">
+                      <span class="gm-date-arrow">→</span>
+                      <div>
+                        <label for="gm-to">To</label
+                        ><input id="gm-to" v-model="draft.toDate" type="date" />
+                      </div>
+                      <fieldset class="gm-duration-picker">
+                        <legend>Meeting length</legend>
+                        <div>
+                          <button
+                            v-for="duration in [30, 60, 90]"
+                            :key="duration"
+                            type="button"
+                            :class="{ active: Number(draft.durationMinutes) === duration }"
+                            :aria-pressed="Number(draft.durationMinutes) === duration"
+                            @click="draft.durationMinutes = String(duration)"
+                          >
+                            {{ duration }}<small> min</small>
+                          </button>
+                        </div>
+                      </fieldset>
+                    </div>
+                    <details class="gm-preferences">
+                      <summary>
+                        Hours &amp; deadline buffer
+                        <span
+                          >{{ draft.startTime }}–{{ draft.endTime }} ·
+                          {{ draft.assignmentBufferMinutes }} min buffer</span
+                        >
+                      </summary>
+                      <div class="gm-preferences-fields">
+                        <div>
+                          <label for="gm-start">Earliest time</label
+                          ><input id="gm-start" v-model="draft.startTime" type="time" />
+                        </div>
+                        <div>
+                          <label for="gm-end">Latest time</label
+                          ><input id="gm-end" v-model="draft.endTime" type="time" />
+                        </div>
+                        <div>
+                          <label for="gm-buffer">Before unfinished deadlines</label
+                          ><select id="gm-buffer" v-model.number="draft.assignmentBufferMinutes">
+                            <option
+                              v-for="buffer in [0, 30, 60, 90, 120]"
+                              :key="buffer"
+                              :value="buffer"
+                            >
+                              {{ buffer ? `${buffer} minutes` : 'No buffer' }}
+                            </option>
+                          </select>
+                        </div>
+                      </div>
+                      <p>
+                        We reserve this time before each unfinished assignment or quiz deadline.
+                        Completed work is excluded. All times are in Singapore time.
+                      </p>
+                    </details>
+                  </form>
+                  <div v-if="matchError" class="gm-message gm-error" role="alert">
+                    {{ matchError
+                    }}<button type="button" @click="findCommonTime()">Try again</button>
+                  </div>
+                  <div
+                    v-else-if="matchResult?.status === 'blocked'"
+                    class="gm-blocked"
+                    role="status"
+                  >
+                    <h3>A few calendars need a little attention.</h3>
+                    <p>We’ll show shared times once the missing schedule information is ready.</p>
+                    <ul>
+                      <li v-for="blocker in matchResult.blockers" :key="blocker.userId">
+                        {{ blocker.message }}
+                      </li>
+                    </ul>
+                  </div>
+                  <template v-else
+                    ><div class="gm-grid-heading">
+                      <b>{{
+                        matching
+                          ? 'Checking your calendars…'
+                          : matchResult
+                            ? `${matchResult.totalSlots}${matchResult.truncated ? '+' : ''} possible starting times`
+                            : 'Getting your calendars ready…'
+                      }}</b
+                      ><small v-if="lastUpdated && !matching">Updated {{ lastUpdated }}</small>
+                    </div>
+                    <GroupAvailabilityGrid
+                      :availability="matchResult?.availability || null"
+                      :loading="matching"
+                      :selected-start="selectedSlot?.startAt || ''"
+                      :duration-minutes="Number(draft.durationMinutes)"
+                      @select="(slot) => pickSlot(slot.date, slot)"
+                    />
+                    <div
+                      v-if="matchResult?.status === 'ok' && !matchResult.totalSlots"
+                      class="gm-no-overlap"
+                      role="status"
+                    >
+                      <strong>No overlap in this window.</strong>
+                      <p>Try 30 minutes, a wider time range, or a smaller deadline buffer.</p>
+                    </div></template
+                  >
+                  <div v-if="sources" class="gm-source-strip">
+                    <span class="gm-dot"></span>{{ sources.activities }} activities ·
+                    {{ (sources.assignments || 0) + (sources.quizzes || 0) }} unfinished deadlines ·
+                    {{ sources.meetings }} meetings checked
+                  </div>
+                </section>
+                <section
+                  v-if="suggestedSlots.length && !matching"
+                  class="gm-suggestions"
+                  aria-labelledby="gm-suggestions-title"
+                >
+                  <div class="gm-section-heading">
+                    <h2 id="gm-suggestions-title">A few good moments</h2>
+                    <span>All {{ members.length }} members free</span>
+                  </div>
+                  <div class="gm-suggestion-list">
+                    <button
+                      v-for="(slot, index) in suggestedSlots"
+                      :key="slot.startAt"
+                      type="button"
+                      :class="{ picked: selectedSlot?.startAt === slot.startAt }"
+                      :aria-pressed="selectedSlot?.startAt === slot.startAt"
+                      @click="pickSlot(slot.date, slot)"
+                    >
+                      <span class="gm-suggestion-label">{{
+                        index === 0 ? 'EARLIEST MATCH' : 'ANOTHER GOOD FIT'
+                      }}</span
+                      ><strong>{{ formatDay(slot.date) }}</strong
+                      ><span>{{ formatRange(slot.startAt, slot.endAt) }}</span
+                      ><i>Choose this time <PlannerIcon name="arrow" /></i>
+                    </button>
+                  </div>
+                </section>
+                <section
+                  ref="meetingsSection"
+                  tabindex="-1"
+                  class="gm-panel gm-meetings"
+                  aria-labelledby="gm-meetings-title"
+                >
+                  <div class="gm-section-heading">
+                    <div>
+                      <p class="gm-kicker">IT’S A DATE</p>
+                      <h2 id="gm-meetings-title">
+                        On the calendar <span>{{ groupMeetings.length }}</span>
+                      </h2>
+                    </div>
+                    <RouterLink to="/dashboard" class="gm-text-button"
+                      >Your dashboard <PlannerIcon name="arrow"
+                    /></RouterLink>
+                  </div>
+                  <p v-if="!groupMeetings.length" class="gm-meeting-empty">
+                    Nothing booked just yet. Pick a green time and turn an overlap into a plan.
+                  </p>
+                  <article
+                    v-for="meeting in groupMeetings"
+                    :id="'meeting-' + meeting.id"
+                    :key="meeting.id"
+                    class="gm-meeting-row"
+                    :class="{ 'gm-requested-meeting': String(meeting.id) === route.query.meeting }"
+                  >
+                    <div class="gm-meeting-date">
+                      <span>{{
+                        new Date(meeting.startAt).toLocaleDateString('en-SG', {
+                          timeZone: TIME_ZONE,
+                          weekday: 'short',
+                        })
+                      }}</span
+                      ><strong>{{
+                        new Date(meeting.startAt).toLocaleDateString('en-SG', {
+                          timeZone: TIME_ZONE,
+                          day: 'numeric',
+                        })
+                      }}</strong>
+                    </div>
+                    <div class="gm-meeting-copy">
+                      <h3>{{ meeting.title }}</h3>
+                      <p>
+                        {{ formatDay(sgDate(meeting.startAt)) }} ·
+                        {{ formatRange(meeting.startAt, meeting.endAt) }}
+                      </p>
+                      <small
+                        >{{ meeting.participantIds.length }} calendars ·
+                        {{
+                          Date.parse(meeting.endAt) < Date.now() ? 'Past meeting' : 'Group meeting'
+                        }}</small
+                      >
+                    </div>
+                    <div v-if="canCancelMeeting(meeting)" class="gm-meeting-actions">
+                      <template v-if="confirmingMeetingId === meeting.id"
+                        ><button
+                          type="button"
+                          class="gm-leave-button"
+                          :disabled="busyAction === `cancel-meeting:${meeting.id}`"
+                          @click="cancelMeeting(meeting)"
+                        >
+                          Confirm cancel</button
+                        ><button
+                          type="button"
+                          class="gm-text-button"
+                          @click="confirmingMeetingId = ''"
+                        >
+                          Keep
+                        </button></template
+                      ><button
+                        v-else
+                        type="button"
+                        class="gm-text-button"
+                        :aria-label="`Cancel ${meeting.title}`"
+                        @click="confirmingMeetingId = meeting.id"
+                      >
                         Cancel
                       </button>
                     </div>
-                  </div>
+                  </article>
                 </section>
               </div>
+              <aside class="gm-planner-aside">
+                <section
+                  ref="bookingAnchor"
+                  tabindex="-1"
+                  class="gm-booking-panel"
+                  aria-labelledby="gm-booking-title"
+                >
+                  <span class="gm-booking-spark" aria-hidden="true">✳</span>
+                  <p class="gm-kicker">FROM “MAYBE” TO “SEE YOU”</p>
+                  <h2 id="gm-booking-title">Make it a date.</h2>
+                  <p class="gm-booking-intro">One plan, on everyone’s calendar.</p>
+                  <div v-if="selectedSlot" class="gm-chosen-time">
+                    <span>YOUR SHARED TIME</span><strong>{{ formatDay(selectedSlot.date) }}</strong
+                    ><b>{{ formatRange(selectedSlot.startAt, selectedSlot.endAt) }}</b
+                    ><small
+                      >{{ draft.durationMinutes }} minutes · {{ members.length }}/{{
+                        members.length
+                      }}
+                      members free</small
+                    >
+                  </div>
+                  <div v-else class="gm-pick-prompt">
+                    <PlannerIcon name="calendar" /><strong>Your time goes here.</strong>
+                    <p>Select a green slot on the grid or a suggested time below it.</p>
+                  </div>
+                  <form @submit.prevent="bookMeeting">
+                    <label for="gm-meeting-title">What’s the plan?</label
+                    ><input
+                      id="gm-meeting-title"
+                      v-model="booking.title"
+                      placeholder="e.g. Project catch-up"
+                      maxlength="80"
+                      :disabled="bookingBusy"
+                    /><button
+                      type="submit"
+                      class="gm-button gm-primary gm-book-button"
+                      :disabled="!selectedSlot || bookingBusy || matching"
+                    >
+                      {{ bookingBusy ? 'Adding to calendars…' : 'Add to everyone’s calendar'
+                      }}<PlannerIcon v-if="!bookingBusy" name="arrow" />
+                    </button>
+                  </form>
+                  <p v-if="bookingError" class="gm-inline-error" role="alert">{{ bookingError }}</p>
+                  <div v-if="bookingNotice" class="gm-booked-notice" role="status">
+                    <strong>You’re all set.</strong>
+                    <p>{{ bookingNotice }}</p>
+                    <RouterLink to="/dashboard">View your dashboard →</RouterLink>
+                  </div>
+                  <small class="gm-booking-footnote"
+                    >We’ll check everyone’s schedule once more before saving.</small
+                  >
+                </section>
+                <section class="gm-panel gm-members-panel" aria-labelledby="gm-members-title">
+                  <div class="gm-section-heading">
+                    <h2 id="gm-members-title">The people</h2>
+                    <span class="gm-member-count">{{ members.length }}</span>
+                  </div>
+                  <ul>
+                    <li v-for="(member, index) in members" :key="member.id">
+                      <span class="gm-avatar" :class="`gm-avatar-${index % 4}`">{{
+                        initials(member.name)
+                      }}</span>
+                      <div>
+                        <strong
+                          >{{ member.name }}<small v-if="member.isViewer"> (you)</small></strong
+                        ><span>{{ member.isOwner ? 'Group owner' : 'Team member' }}</span>
+                      </div>
+                      <span
+                        class="gm-member-status"
+                        :class="{ incomplete: member.scheduleStatus !== 'complete' }"
+                        :title="
+                          member.scheduleStatus === 'complete'
+                            ? 'Calendar connected'
+                            : 'Calendar needs attention'
+                        "
+                        :aria-label="
+                          member.scheduleStatus === 'complete'
+                            ? 'Calendar connected'
+                            : 'Calendar needs attention'
+                        "
+                      ></span>
+                    </li>
+                  </ul>
+                  <p>Availability is shared. The details in each calendar stay private.</p>
+                  <details class="gm-email-invite">
+                    <summary>Prefer an email invite?</summary>
+                    <form @submit.prevent="sendInvitation">
+                      <label for="gm-invite-group">Group</label
+                      ><select id="gm-invite-group" v-model="inviteGroupId">
+                        <option v-for="group in groups" :key="group.id" :value="group.id">
+                          {{ group.name }}
+                        </option></select
+                      ><label for="gm-invite-recipient">Registered email</label
+                      ><input
+                        id="gm-invite-recipient"
+                        v-model="inviteEmail"
+                        type="email"
+                        placeholder="teammate@smu.edu.sg"
+                        required
+                      /><button class="gm-button gm-secondary" :disabled="busyAction === 'invite'">
+                        Send invitation
+                      </button>
+                    </form>
+                    <p v-if="inviteError" class="gm-inline-error" role="alert">{{ inviteError }}</p>
+                    <p v-if="inviteNotice" role="status">{{ inviteNotice }}</p>
+                  </details>
+                </section>
+                <div class="gm-how-it-works">
+                  <span>↗</span>
+                  <div>
+                    <strong>Your schedules do the talking.</strong>
+                    <p>
+                      Saved activities block busy time. Unfinished deadlines get a little breathing
+                      room. Green means the whole team can make it.
+                    </p>
+                  </div>
+                </div>
+              </aside>
             </div>
           </template>
         </template>
+        <footer class="gm-footer">
+          <span>Less scheduling. More doing things together.</span
+          ><span>All times in Singapore · UTC+8</span>
+        </footer>
       </div>
     </main>
-
-    <!-- Invitations, opened from the sidebar bell -->
-    <div v-if="bellOpen" ref="bellPanel" class="gm-bell-panel" :style="bellPanelStyle"
-      role="dialog" aria-labelledby="gm-bell-title">
-      <div class="section-heading mb-2">
-        <h2 id="gm-bell-title">Invitations</h2>
-        <div class="d-flex align-items-center gap-2">
-          <span class="badge rounded-pill"
-            :class="pendingCount ? 'gm-invitation-pending' : 'gm-unknown'">
-            {{ pendingCount }} awaiting response
-          </span>
-          <button type="button" class="gm-bell-close" aria-label="Close invitations"
-            @click="bellOpen = false">×</button>
+    <div
+      v-if="confirmingLeave && selectedGroup"
+      class="gm-modal-backdrop"
+      @click.self="closeLeaveDialog"
+    >
+      <div
+        class="gm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gm-leave-title"
+        aria-describedby="gm-leave-description"
+        @keydown="onLeaveDialogKeydown"
+      >
+        <h2 id="gm-leave-title">Leave {{ selectedGroup.name }}?</h2>
+        <p id="gm-leave-description">
+          You will be removed from this group's meetings and availability matching.
+        </p>
+        <p v-if="members.length === 1">
+          You are the last member. Leaving will close the group and remove its meetings.
+        </p>
+        <p v-else-if="selectedGroup.isOwner">
+          Ownership will pass to another member so the group can keep meeting.
+        </p>
+        <p v-if="leaveError" class="gm-inline-error" role="alert">{{ leaveError }}</p>
+        <div class="gm-modal-actions">
+          <button
+            ref="cancelLeaveButton"
+            type="button"
+            class="gm-button gm-secondary"
+            :disabled="leaving"
+            @click="closeLeaveDialog"
+          >
+            Stay in group</button
+          ><button
+            id="gm-confirm-leave"
+            type="button"
+            class="gm-button gm-danger"
+            :disabled="leaving"
+            @click="leaveGroup"
+          >
+            {{ leaving ? 'Leaving…' : 'Leave group' }}
+          </button>
         </div>
       </div>
-
-      <p v-if="!incomingInvitations.length" class="gm-help mb-0">
-        No invitations yet. Someone needs to invite your account by email.
-      </p>
-
-      <article v-for="invitation in incomingInvitations" :key="invitation.id"
-        class="gm-invitation-row" :data-invitation-id="invitation.id">
-        <div class="gm-record">
-          <strong>{{ invitation.groupName }}</strong>
-          <p class="gm-help mb-1">
-            {{ invitation.fromUserName }} invited you {{ formatDateTime(invitation.createdAt) }}.
-          </p>
-          <p v-if="invitation.respondedAt" class="gm-help mb-0">
-            You responded {{ formatDateTime(invitation.respondedAt) }}.
-          </p>
-        </div>
-        <span class="badge rounded-pill text-capitalize"
-          :class="`gm-invitation-${invitation.status}`">{{ invitation.status }}</span>
-        <div v-if="invitation.status === 'pending'" class="d-flex flex-wrap gap-2">
-          <button type="button" class="btn btn-sm btn-primary"
-            :disabled="busyAction === `accept:${invitation.id}`"
-            @click="respond(invitation, 'accept')">
-            {{ busyAction === `accept:${invitation.id}` ? 'Accepting...' : 'Accept invitation' }}
-          </button>
-          <button type="button" class="btn btn-sm btn-outline-secondary"
-            :disabled="busyAction === `decline:${invitation.id}`"
-            @click="respond(invitation, 'decline')">
-            Decline
-          </button>
-        </div>
-      </article>
-
-      <p class="gm-help mt-3 mb-0">
-        Accepting adds you to the group.
-      </p>
     </div>
-
-    <!-- Confirmation for a booking that is not shared-free -->
-    <div v-if="bookingConfirm" class="gm-modal-backdrop" @click.self="bookingConfirm = null"
-      @keydown.esc="bookingConfirm = null">
-      <div class="gm-modal" role="dialog" aria-modal="true" aria-labelledby="gm-confirm-title">
-        <h2 id="gm-confirm-title">This time is not free for everyone</h2>
-        <p class="gm-modal-time">
-          {{ formatDay(sgDate(bookingConfirm.startAt)) }} ·
-          {{ formatRange(bookingConfirm.startAt, bookingConfirm.endAt) }}
-        </p>
-
-        <p v-if="bookingConfirm.reason === 'busy'" class="mb-2">
-          <strong>{{ confirmBusyNames }}</strong>
-          {{ bookingConfirm.conflicts.length === 1 ? 'has' : 'have' }} no free time then — the
-          calendar already shows something else.
-        </p>
-        <p v-else-if="bookingConfirm.reason === 'outside'" class="mb-2">
-          This time is not one of the shared free slots from your last search, so it was never
-          checked against everyone's calendar.
-        </p>
-        <p v-else class="mb-2">
-          No search has been run for this group, so nobody's availability was checked at all.
-        </p>
-
-        <p class="gm-help mb-0">
-          Book it anyway? Everyone in the group is still invited, and the overlap is marked on the
-          meeting so the clash stays visible.
-        </p>
-
-        <div class="gm-modal-actions">
-          <button ref="confirmButton" type="button" class="btn btn-primary"
-            :disabled="bookingBusy" @click="confirmBooking">
-            {{ bookingBusy ? 'Booking...' : 'Book anyway' }}
-          </button>
-          <button type="button" class="btn btn-outline-secondary" @click="bookingConfirm = null">
-            Cancel
+    <div v-if="bellOpen" class="gm-modal-backdrop" @click.self="bellOpen = false">
+      <div
+        ref="bellPanel"
+        class="gm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gm-invitations-title"
+        @keydown.esc="bellOpen = false"
+      >
+        <div class="gm-section-heading">
+          <h2 id="gm-invitations-title">Your invitations</h2>
+          <button
+            type="button"
+            class="gm-text-button"
+            aria-label="Close invitations"
+            @click="bellOpen = false"
+          >
+            ✕
           </button>
         </div>
+        <p v-if="!incomingInvitations.length">
+          No invitations yet. Join a group with a code, or ask a teammate to invite your email.
+        </p>
+        <article
+          v-for="invitation in incomingInvitations"
+          :key="invitation.id"
+          class="gm-invitation-row"
+        >
+          <h3>{{ invitation.groupName }}</h3>
+          <p>{{ invitation.fromUserName }} invited you to the group.</p>
+          <div v-if="invitation.status === 'pending'" class="gm-modal-actions">
+            <button
+              class="gm-button gm-primary"
+              :disabled="busyAction === `accept:${invitation.id}`"
+              @click="respond(invitation, 'accept')"
+            >
+              Accept invitation</button
+            ><button
+              class="gm-button gm-secondary"
+              :disabled="busyAction === `decline:${invitation.id}`"
+              @click="respond(invitation, 'decline')"
+            >
+              Decline
+            </button>
+          </div>
+          <small v-else>{{ invitation.status }}</small>
+        </article>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-
-
-/* Sidebar invitation bell */
-.gm-bell { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 10px; padding: 12px 14px; border: 0; border-radius: 12px; background: rgba(255, 255, 255, .12); color: #fff; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
-.gm-bell:hover { background: rgba(255, 255, 255, .22); }
-.gm-bell.gm-bell-open, .gm-bell.gm-bell-open:hover { background: #fff; color: var(--brand); }
-.gm-bell-icon { font-size: 1rem; line-height: 1; }
-.gm-bell-dot { position: absolute; top: 9px; left: 27px; width: 10px; height: 10px; border-radius: 50%; background: #ff4d6d; box-shadow: 0 0 0 2px #6b5ce0; }
-.gm-bell-open .gm-bell-dot { box-shadow: 0 0 0 2px #fff; }
-.gm-bell-alert { font-weight: 750; }
-.gm-bell-mobile { position: relative; display: inline-flex; align-items: center; gap: 6px; }
-.gm-bell-mobile .gm-bell-dot { position: static; box-shadow: none; margin-left: 2px; }
-
-.gm-bell-panel { position: fixed; z-index: 1070; width: 380px; max-height: min(520px, calc(100vh - 40px)); overflow-y: auto; padding: 18px; border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 18px 48px rgba(18, 20, 45, .22); }
-.gm-bell-panel h2 { margin: 0; font-size: 1.05rem; font-weight: 750; }
-.gm-bell-close { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: var(--surface-subtle); color: var(--muted); font-size: 1.1rem; line-height: 1; cursor: pointer; }
-.gm-bell-close:hover { background: var(--border); color: var(--ink); }
-.gm-bell-panel .gm-invitation-row:last-of-type { border-bottom: 0; }
-@media (max-width: 991.98px) { .gm-bell-panel { top: 72px !important; left: 12px; right: 12px; width: auto; max-height: calc(100vh - 96px); } }
-
-.gm-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.gm-page { width: 100%; max-width: 1600px; margin: 0 auto; }
-.gm-phase, .gm-sample { background: var(--brand-soft); color: var(--brand); }
-.gm-unknown { background: var(--brand-soft); color: var(--muted); }
-.gm-invitation-pending { background: #fff3d6; color: #875800; }
-.gm-invitation-accepted { background: #dcf8ef; color: #0a7a5a; }
-.gm-invitation-declined, .gm-invitation-cancelled { background: #ffe9ee; color: #a32642; }
-.gm-invitation-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
-.gm-member-info { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
-.gm-sent-invitation { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
-.gm-subheading { font-size: .95rem; }
-.gm-notifications .btn { min-height: 40px; }
-.gm-phase { padding: .65rem .9rem; }
-.gm-summary { padding: 1rem 1.15rem; border: 1px solid var(--border); border-radius: 1rem; background: #fff; }
-.gm-summary span, .gm-summary strong, .gm-summary small { display: block; }
-.gm-summary span, .gm-summary small, .gm-help { color: var(--muted); font-size: .85rem; }
-.gm-summary strong { font-size: 1.4rem; margin: .3rem 0; }
-.gm-column { min-width: 0; }
-.gm-card h2 { font-size: 1.1rem; font-weight: 700; margin: 0 0 .5rem; }
-.gm-source-list { display: grid; gap: 10px; }
-.gm-source-item { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 14px; background: var(--surface-subtle); border-left: 4px solid var(--brand); border-radius: 12px; }
-.gm-record { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
-.gm-time { color: var(--muted); font-size: .85rem; }
-.gm-context { padding: 14px; background: var(--surface-subtle); border-radius: 12px; }
-.gm-context strong { font-size: .9rem; }
-.gm-text-link { display: inline-block; margin-top: 8px; color: var(--brand); }
-.gm-empty { padding: 24px 12px; text-align: center; color: var(--muted); }
-.gm-empty strong { display: block; color: var(--ink); margin-bottom: 8px; }
-.gm-pending { border: 1px dashed var(--border); border-radius: 12px; background: var(--surface-subtle); }
-.gm-member { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
-.gm-card .form-label { font-size: .85rem; font-weight: 600; }
-.gm-card input, .gm-card select { min-width: 0; min-height: 44px; }
-.gm-card .btn { min-height: 40px; }
-.gm-card :focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; }
-.gm-best { padding: 16px; border-radius: 14px; background: linear-gradient(135deg, var(--brand-soft), #f4f0ff); border: 1px solid #ded9ff; }
-.gm-best span { display: block; font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--brand); }
-.gm-best strong { display: block; font-size: 1.15rem; margin: 4px 0 2px; }
-.gm-day { margin-top: 18px; }
-.gm-day-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-.gm-block { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px; margin-top: 10px; background: var(--surface-subtle); border-left: 4px solid var(--green); border-radius: 12px; }
-.gm-block-range strong { display: block; }
-.gm-slot-list { display: flex; flex-wrap: wrap; gap: 8px; }
-/* A start time is a button, and it says so: the time alone looked like a label. */
-.gm-slot { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 12px; border: 1px solid #bfe8d8; border-radius: 99px; background: #fff; color: #0a7a5a; font-size: .8rem; font-weight: 700; cursor: pointer; }
-.gm-slot:hover { background: #eafaf3; border-color: #8fd9bd; }
-.gm-slot-time { font-variant-numeric: tabular-nums; }
-.gm-slot-action { padding: 2px 7px; border-radius: 99px; background: #dcf8ef; color: #0a7a5a; font-size: .68rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
-.gm-slot:hover .gm-slot-action { background: #c3f2e2; }
-.gm-slot-tight { border-color: #f0dcae; color: #875800; }
-.gm-slot-tight .gm-slot-action { background: #fff3d6; color: #875800; }
-.gm-slot-tight:hover { background: #fffaf0; border-color: #e8c987; }
-.gm-slot-tight:hover .gm-slot-action { background: #ffe8b8; }
-.gm-slot-picked, .gm-slot-picked:hover { background: var(--brand); border-color: var(--brand); color: #fff; }
-.gm-slot-picked .gm-slot-action, .gm-slot-picked:hover .gm-slot-action { background: rgba(255, 255, 255, .22); color: #fff; }
-.gm-slot-more { border: 0; background: var(--brand-soft); color: var(--muted); cursor: default; font-weight: 700; }
-
-/* Result + booking live inside the search card */
-.gm-result-area { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border); scroll-margin-top: 1rem; }
-.gm-result-area:focus, .gm-booking:focus { outline: none; }
-.gm-booking { margin-top: 1.5rem; padding: 16px; border: 1px dashed var(--border); border-radius: 14px; background: var(--surface-subtle); scroll-margin-top: 1rem; }
-.gm-meeting-row { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px; margin-top: 10px; background: var(--surface-subtle); border-left: 4px solid var(--green); border-radius: 12px; }
-.gm-meeting-time { min-width: 92px; }
-.gm-meeting-time strong { display: block; font-size: 1rem; }
-.gm-meeting-time small { color: var(--muted); font-size: .78rem; }
-.gm-meeting-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-.gm-meetings { scroll-margin-top: 1rem; }
-.gm-meetings:focus { outline: none; }
-
-.gm-card-flash { animation: gm-flash 1.8s ease-out; }
-@keyframes gm-flash {
-  0% { box-shadow: 0 0 0 3px rgba(91, 91, 240, .6), 0 12px 28px rgba(91, 91, 240, .28); }
-  100% { box-shadow: 0 0 0 3px rgba(91, 91, 240, 0); }
+.gm-app {
+  --gm-paper: #f7f8f5;
+  --gm-ink: #243e3b;
+  --gm-muted: #6d7c76;
+  --gm-line: #e2e8e1;
+  --gm-purple: #7153ad;
+  background: var(--gm-paper);
+  color: var(--gm-ink);
 }
-@media (prefers-reduced-motion: reduce) { .gm-card-flash { animation: none; } }
-
-/* Confirmation dialog */
-.gm-modal-backdrop { position: fixed; inset: 0; z-index: 1080; display: grid; place-items: center; padding: 20px; background: rgba(18, 20, 45, .45); }
-.gm-modal { width: 100%; max-width: 520px; padding: 24px; border-radius: 18px; background: #fff; box-shadow: 0 24px 60px rgba(18, 20, 45, .28); }
-.gm-modal h2 { margin: 0 0 .5rem; font-size: 1.15rem; font-weight: 750; letter-spacing: -.01em; }
-.gm-modal p { color: var(--ink); font-size: .92rem; }
-.gm-modal .gm-help { color: var(--muted); font-size: .85rem; }
-.gm-modal-time { padding: 10px 12px; border-radius: 10px; background: #fff3d6; color: #875800; font-weight: 700; font-size: .9rem !important; }
-.gm-modal-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 1.25rem; }
-.gm-modal-actions .btn { min-height: 42px; }
-@media (max-width: 520px) { .gm-modal-actions .btn { flex: 1 1 100%; } }
-@media (max-width: 767.98px) {  .gm-source-item { padding: 12px; } }
+.app .gm-main {
+  padding: 26px 34px;
+}
+.gm-wrap {
+  max-width: 1500px;
+  margin: auto;
+}
+.gm-app button,
+.gm-app input,
+.gm-app select {
+  font: inherit;
+}
+.gm-app button {
+  cursor: pointer;
+}
+.gm-app button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.gm-app :is(button, a, input, select, summary):focus-visible {
+  outline: 3px solid #a58ad5;
+  outline-offset: 3px;
+}
+.gm-app :is(h1, section):focus {
+  outline: none;
+}
+.gm-topbar,
+.gm-backlinks,
+.gm-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.gm-topbar {
+  justify-content: space-between;
+  margin-bottom: 26px;
+}
+.gm-text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--gm-muted);
+  font-size: 0.78rem !important;
+  text-decoration: none;
+}
+.gm-text-button:hover {
+  color: var(--gm-purple);
+}
+.gm-notification-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 1px solid var(--gm-line);
+  border-radius: 99px;
+  background: white;
+  color: var(--gm-ink);
+  font-size: 0.76rem !important;
+}
+.gm-notification-button :deep(svg) {
+  width: 19px;
+  height: 19px;
+}
+.gm-count {
+  padding: 2px 6px;
+  background: var(--gm-purple);
+  border-radius: 50%;
+  color: white;
+  font-size: 0.65rem;
+}
+.gm-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  overflow: hidden;
+  padding: 36px 40px;
+  margin-bottom: 30px;
+  border: 1px solid #e4deed;
+  border-radius: 26px;
+  background: linear-gradient(118deg, #eee9fa, #f5eff6 54%, #fbf1e2);
+}
+.gm-hero-copy {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+}
+.gm-kicker {
+  margin: 0 0 10px;
+  color: var(--gm-purple);
+  font-size: 0.61rem;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+}
+.gm-app .gm-hero h1 {
+  font-size: clamp(2.1rem, 3.5vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.065em;
+  margin: 0 0 16px;
+  overflow-wrap: anywhere;
+}
+.gm-intro {
+  max-width: 480px;
+  margin: 0;
+  color: #64716c;
+  font-size: 0.9rem;
+  line-height: 1.8;
+}
+.gm-journey {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 27px;
+  font-size: 0.67rem;
+  color: #6f697d;
+}
+.gm-journey span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.gm-journey b {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid #dcd2e9;
+  border-radius: 50%;
+  font-size: 0.6rem;
+}
+.gm-journey i {
+  width: 20px;
+  height: 1px;
+  background: #cfc6dc;
+}
+.gm-hero-art {
+  position: relative;
+  flex: 0 0 270px;
+  height: 208px;
+  margin: 0 30px 0 8px;
+}
+.gm-orbit {
+  position: absolute;
+  border-radius: 50%;
+}
+.gm-orbit-one {
+  width: 168px;
+  height: 168px;
+  background: #dfcfee;
+  right: -25px;
+  top: -15px;
+}
+.gm-orbit-two {
+  width: 115px;
+  height: 115px;
+  background: #d3e9d9;
+  left: -20px;
+  bottom: -18px;
+}
+.gm-mini-calendar {
+  position: relative;
+  width: 250px;
+  padding: 14px 18px;
+  border: 1px solid white;
+  border-radius: 16px;
+  transform: rotate(-6deg);
+  background: #fffffff0;
+  box-shadow: 0 14px 30px #674a7c13;
+}
+.gm-mini-dots {
+  display: block;
+  color: #b7a6ce;
+  letter-spacing: 3px;
+  font-size: 0.4rem;
+  margin-bottom: 12px;
+}
+.gm-mini-calendar strong {
+  display: block;
+  font-size: 0.73rem;
+  margin-bottom: 12px;
+}
+.gm-mini-calendar > div {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+.gm-mini-calendar i {
+  height: 15px;
+  border-radius: 4px;
+  background: #eeeaf2;
+}
+.gm-mini-calendar i.free {
+  background: #8bc5a9;
+}
+.gm-mini-calendar small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  color: #73816c;
+  font-size: 0.6rem;
+}
+.gm-mini-calendar small span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #5ca686;
+}
+.gm-art-spark {
+  position: absolute;
+  right: -15px;
+  bottom: 15px;
+  font-size: 3.7rem;
+  line-height: 1;
+  color: #ae83be;
+}
+.gm-hero-detail {
+  padding: 28px 32px;
+}
+.gm-hero-detail h1 {
+  font-size: clamp(1.9rem, 3vw, 2.9rem) !important;
+}
+.gm-hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 18px;
+  color: #6a736b;
+  font-size: 0.7rem;
+}
+.gm-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #65a48a;
+}
+.gm-share-card {
+  flex: 0 0 auto;
+  padding: 19px 22px;
+  border: 1px solid #ffffffaa;
+  border-radius: 16px;
+  background: #ffffff91;
+}
+.gm-share-card > span {
+  font-size: 0.57rem;
+  letter-spacing: 0.12em;
+  color: #7c718c;
+  font-weight: 700;
+}
+.gm-share-card > div {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin: 10px 0;
+}
+.gm-group-code {
+  font:
+    700 1.25rem ui-monospace,
+    monospace;
+  letter-spacing: 0.15em;
+  color: #7153ad;
+  user-select: all;
+}
+.gm-copy-button {
+  border: 1px solid #d6cce5;
+  border-radius: 8px;
+  background: #fff9;
+  padding: 7px 10px;
+  color: #7153ad;
+  font-size: 0.67rem !important;
+}
+.gm-share-card small {
+  display: block;
+  max-width: 280px;
+  color: #82758b;
+  font-size: 0.64rem;
+}
+.gm-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.gm-app .gm-section-heading h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.17rem;
+}
+.gm-section-heading h2 > span:not(.gm-live-pill) {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: #f0f2ed;
+  color: #6e7b70;
+  font-size: 0.7rem;
+}
+.gm-section-heading .gm-kicker {
+  margin-bottom: 6px;
+}
+.gm-soft-label {
+  color: var(--gm-muted);
+  font-size: 0.72rem;
+}
+.gm-circles {
+  margin-bottom: 28px;
+}
+.gm-group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 285px), 1fr));
+  gap: 18px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.gm-group-card {
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--gm-line);
+  border-radius: 19px;
+  background: white;
+  transition:
+    transform 0.18s,
+    box-shadow 0.18s;
+}
+.gm-group-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px #354b3910;
+}
+.gm-group-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.gm-group-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: #eee8fa;
+}
+.gm-tone-1 .gm-group-mark {
+  background: #e6f2ed;
+}
+.gm-tone-2 .gm-group-mark {
+  background: #fbefda;
+}
+.gm-role {
+  font-size: 0.62rem;
+  color: #8a8592;
+}
+.gm-app .gm-group-card h3 {
+  margin: 0 0 7px;
+  font-size: 1.09rem;
+  letter-spacing: -0.025em;
+}
+.gm-group-card > p {
+  color: var(--gm-muted);
+  font-size: 0.7rem;
+  margin-bottom: 24px;
+}
+.gm-group-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.gm-avatars {
+  display: flex;
+  padding-left: 3px;
+}
+.gm-avatars > span,
+.gm-avatar {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 31px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: #e7e6ee;
+  color: #746485;
+  font-size: 0.59rem;
+  font-weight: 750;
+}
+.gm-avatars > span {
+  margin-left: -3px;
+}
+.gm-avatars .gm-avatar-1,
+.gm-avatar-1 {
+  background: #e1eee4;
+  color: #4e7a60;
+}
+.gm-avatars .gm-avatar-2,
+.gm-avatar-2 {
+  background: #f6e8d9;
+  color: #9b7751;
+}
+.gm-avatars .gm-avatar-3,
+.gm-avatar-3 {
+  background: #e3e9f5;
+  color: #667aa0;
+}
+.gm-open-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 35px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--gm-purple);
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+}
+.gm-open-button :deep(svg) {
+  width: 16px;
+}
+.gm-empty-team {
+  padding: 30px;
+  text-align: center;
+  border: 1px dashed #cfdccc;
+  border-radius: 20px;
+  background: #eef4ed;
+}
+.gm-empty-mark {
+  display: grid;
+  place-items: center;
+  margin: 0 auto 12px;
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  background: white;
+}
+.gm-empty-team p {
+  margin: 7px 0 0;
+  font-size: 0.78rem;
+  color: var(--gm-muted);
+}
+.gm-panel {
+  min-width: 0;
+  background: white;
+  border: 1px solid var(--gm-line);
+  border-radius: 20px;
+  padding: 25px;
+}
+.gm-entry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+.gm-entry-grid .gm-panel {
+  position: relative;
+  padding: 28px;
+  overflow: hidden;
+}
+.gm-create-panel {
+  background: #f2eef9;
+  border-color: #e6dff0;
+}
+.gm-join-panel {
+  background: #edf4ed;
+  border-color: #dee8dd;
+}
+.gm-entry-icon {
+  position: absolute;
+  right: 28px;
+  top: 22px;
+  font: 300 2.4rem/1 system-ui;
+  color: #ab94c1;
+}
+.gm-join-panel .gm-entry-icon {
+  color: #8aa487;
+}
+.gm-entry-grid h2 {
+  margin-bottom: 9px;
+  font-size: 1.3rem;
+}
+.gm-entry-grid .gm-panel > p:not(.gm-kicker):not(.gm-inline-error) {
+  max-width: 360px;
+  color: var(--gm-muted);
+  font-size: 0.76rem;
+  line-height: 1.75;
+  margin-bottom: 24px;
+}
+.gm-entry-grid small {
+  display: block;
+  margin-top: 12px;
+  color: #89858c;
+  font-size: 0.65rem;
+}
+.gm-app label,
+.gm-duration-picker legend {
+  display: block;
+  margin: 0 0 7px;
+  color: #52645a;
+  font-size: 0.69rem;
+  font-weight: 650;
+}
+.gm-app input,
+.gm-app select {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: 43px;
+  border: 1px solid #dce3da;
+  border-radius: 9px;
+  background: white;
+  padding: 9px 11px;
+  font-size: 0.76rem;
+  color: var(--gm-ink);
+}
+.gm-app input::placeholder {
+  color: #a19cab;
+  font-size: 0.73rem;
+}
+.gm-input-action {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.gm-input-action input {
+  flex: 1 1 170px;
+}
+.gm-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 43px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 0.73rem !important;
+  font-weight: 650 !important;
+  text-decoration: none;
+  transition:
+    background 0.18s,
+    transform 0.18s;
+}
+.gm-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.gm-primary {
+  background: #7153ad;
+  color: white;
+}
+.gm-primary:hover:not(:disabled) {
+  background: #604393;
+}
+.gm-dark {
+  background: #355d4e;
+  color: white;
+}
+.gm-dark:hover:not(:disabled) {
+  background: #264c3e;
+}
+.gm-secondary {
+  background: white;
+  border-color: var(--gm-line);
+  color: #667265;
+}
+.gm-danger {
+  background: #ad495b;
+  color: white;
+}
+.gm-code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+.gm-demo-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  color: var(--gm-muted);
+  font-size: 0.72rem !important;
+  margin: 24px auto;
+}
+.gm-group-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 23px;
+}
+.gm-group-toolbar > div:first-child {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.gm-group-toolbar label {
+  margin: 0;
+  font-size: 0.57rem;
+  letter-spacing: 0.1em;
+  color: #859085;
+}
+.gm-group-toolbar select {
+  width: auto;
+  min-height: 36px;
+  max-width: 100%;
+  background: transparent;
+  border-color: #dce3d9;
+  padding: 6px 30px 6px 10px;
+  font-size: 0.72rem;
+}
+.gm-refresh-symbol {
+  font: 400 1.3rem/1 system-ui;
+}
+.gm-leave-button {
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 1px solid #e4d5d7;
+  border-radius: 8px;
+  background: transparent;
+  color: #9d6770;
+  font-size: 0.7rem !important;
+}
+.gm-solo-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 17px;
+  background: #faf2df;
+  border: 1px solid #ede2c8;
+  border-radius: 12px;
+  margin: 0 0 22px;
+  color: #8b7449;
+}
+.gm-solo-note > span {
+  font-size: 1.4rem;
+}
+.gm-solo-note p {
+  margin: 0;
+  font-size: 0.74rem;
+}
+.gm-planner-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+  align-items: start;
+}
+.gm-planner-main,
+.gm-planner-aside {
+  min-width: 0;
+}
+.gm-planner-main > section + section {
+  margin-top: 24px;
+}
+.gm-planner-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.gm-availability-panel {
+  padding: 25px 22px 15px;
+}
+.gm-availability-panel .gm-section-heading {
+  margin-bottom: 8px;
+}
+.gm-panel-description {
+  margin: 0 0 24px;
+  color: var(--gm-muted);
+  font-size: 0.74rem;
+  line-height: 1.7;
+}
+.gm-live-pill {
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #52806a;
+  background: #edf5ee;
+  font-size: 0.55rem;
+  letter-spacing: 0.01em;
+}
+.gm-date-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15px minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+.gm-date-arrow {
+  padding-bottom: 13px;
+  color: #a4aaa1;
+  font-size: 0.8rem;
+}
+.gm-date-row input {
+  font-size: 0.7rem;
+  padding-left: 8px;
+  padding-right: 7px;
+}
+.gm-duration-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.gm-duration-picker legend {
+  float: none;
+  width: auto;
+}
+.gm-duration-picker > div {
+  display: flex;
+  padding: 4px;
+  border: 1px solid #e3e7de;
+  border-radius: 10px;
+  background: #f6f7f2;
+}
+.gm-duration-picker button {
+  min-height: 33px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #8b9085;
+  font-size: 0.7rem !important;
+}
+.gm-duration-picker button.active {
+  background: white;
+  color: #7051a6;
+  box-shadow: 0 1px 5px #343b2410;
+  font-weight: 700;
+}
+.gm-duration-picker small {
+  font-size: 0.58rem;
+}
+.gm-preferences {
+  margin: 15px 0 21px;
+}
+.gm-preferences summary {
+  color: #73816d;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+.gm-preferences summary > span {
+  float: right;
+  font-size: 0.62rem;
+  color: #939b8d;
+}
+.gm-preferences-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 12px;
+  padding-top: 16px;
+}
+.gm-preferences p {
+  margin: 10px 0 0;
+  color: var(--gm-muted);
+  font-size: 0.65rem;
+  line-height: 1.7;
+}
+.gm-grid-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding-top: 17px;
+  border-top: 1px solid #edf0e9;
+  font-size: 0.7rem;
+}
+.gm-grid-heading b {
+  font-weight: 600;
+  color: #526856;
+}
+.gm-grid-heading small {
+  color: #98a18f;
+  font-size: 0.58rem;
+}
+.gm-timezone {
+  color: #909c88;
+  font-size: 0.58rem;
+  white-space: nowrap;
+}
+.gm-source-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid #edf0e9;
+  color: #89947f;
+  font-size: 0.59rem;
+}
+.gm-blocked,
+.gm-no-overlap {
+  padding: 20px;
+  border-radius: 13px;
+  background: #fbf3e3;
+  color: #8b754a;
+  font-size: 0.76rem;
+}
+.gm-blocked p,
+.gm-no-overlap p {
+  margin-bottom: 0;
+}
+.gm-blocked ul {
+  padding-left: 17px;
+  margin-bottom: 0;
+}
+.gm-no-overlap {
+  margin-top: 13px;
+  background: #f4f5f0;
+}
+.gm-suggestions .gm-section-heading {
+  margin-bottom: 12px;
+}
+.gm-suggestions .gm-section-heading > span {
+  font-size: 0.65rem;
+  color: #85927a;
+}
+.gm-suggestion-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+}
+.gm-suggestion-list > button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 17px 14px;
+  border: 1px solid #dce5d9;
+  border-radius: 14px;
+  background: #eff5eb;
+  color: #45654e;
+  text-align: left;
+  transition:
+    border-color 0.15s,
+    transform 0.15s;
+}
+.gm-suggestion-list > button:hover {
+  border-color: #8cac8a;
+  transform: translateY(-2px);
+}
+.gm-suggestion-list > button.picked {
+  background: #e6ddf5;
+  border-color: #ad94ce;
+  color: #6b5191;
+}
+.gm-suggestion-label {
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+  color: #829676;
+}
+.gm-suggestion-list strong {
+  font-size: 0.83rem;
+}
+.gm-suggestion-list > button > span:not(.gm-suggestion-label) {
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+.gm-suggestion-list i {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 0.58rem;
+  font-style: normal;
+}
+.gm-suggestion-list :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+.gm-booking-panel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e3d9ee;
+  border-radius: 20px;
+  padding: 26px 22px 22px;
+  background: linear-gradient(155deg, #f0eaf9, #f5f0fb 65%, #f7f3fa);
+  scroll-margin-top: 18px;
+}
+.gm-booking-spark {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  font-size: 2.7rem;
+  line-height: 1;
+  color: #c6b0df;
+  transform: rotate(12deg);
+}
+.gm-booking-panel .gm-kicker {
+  max-width: 180px;
+  font-size: 0.53rem;
+}
+.gm-app .gm-booking-panel h2 {
+  margin: 13px 0 8px;
+  color: #594277;
+  font-size: 1.75rem;
+  letter-spacing: -0.05em;
+}
+.gm-booking-intro {
+  font-size: 0.71rem;
+  color: #8c7e9c;
+  margin-bottom: 22px;
+}
+.gm-pick-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 25px 13px;
+  border: 1px dashed #d3c5e4;
+  border-radius: 12px;
+  background: #ffffff61;
+  text-align: center;
+}
+.gm-pick-prompt :deep(svg) {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 12px;
+  opacity: 0.65;
+}
+.gm-pick-prompt strong {
+  font-size: 0.78rem;
+  color: #82708f;
+}
+.gm-pick-prompt p {
+  margin: 7px 0 0;
+  max-width: 190px;
+  color: #998ba7;
+  font-size: 0.68rem;
+  line-height: 1.7;
+}
+.gm-booking-panel form {
+  margin-top: 23px;
+}
+.gm-booking-panel label {
+  color: #827190;
+}
+.gm-booking-panel input {
+  border-color: #e0d6eb;
+  background: #fffc;
+}
+.gm-book-button {
+  width: 100%;
+  margin-top: 12px;
+  justify-content: space-between;
+  font-size: 0.67rem !important;
+  padding: 13px 12px;
+}
+.gm-book-button :deep(svg) {
+  flex-shrink: 0;
+  width: 16px;
+}
+.gm-booking-footnote {
+  display: block;
+  margin-top: 13px;
+  color: #a091ab;
+  font-size: 0.61rem;
+  text-align: center;
+  line-height: 1.6;
+}
+.gm-chosen-time {
+  padding: 20px;
+  border: 1px solid #d3d2cb;
+  border-radius: 12px;
+  background: #fffdf6;
+}
+.gm-chosen-time > span {
+  display: block;
+  font-size: 0.49rem;
+  letter-spacing: 0.12em;
+  color: #9a977a;
+}
+.gm-chosen-time strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 1rem;
+  color: #526c53;
+}
+.gm-chosen-time b {
+  display: block;
+  margin: 6px 0 10px;
+  color: #526c53;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+.gm-chosen-time small {
+  font-size: 0.6rem;
+  color: #92a181;
+}
+.gm-booked-notice {
+  padding: 16px;
+  margin-top: 16px;
+  border: 1px solid #d0e2ce;
+  border-radius: 12px;
+  background: #eef7ec;
+  color: #50724d;
+  font-size: 0.72rem;
+}
+.gm-booked-notice p {
+  margin: 7px 0;
+  line-height: 1.7;
+}
+.gm-booked-notice a {
+  color: #3b6c50;
+  font-size: 0.68rem;
+}
+.gm-members-panel {
+  padding: 22px;
+}
+.gm-member-count {
+  background: #f1f4ee;
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 0.65rem;
+  color: #88917e;
+}
+.gm-members-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.gm-members-panel li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 0;
+}
+.gm-members-panel .gm-avatar {
+  width: 35px;
+  height: 35px;
+  flex-basis: 35px;
+  font-size: 0.65rem;
+}
+.gm-members-panel li > div {
+  flex: 1;
+  min-width: 0;
+}
+.gm-members-panel li strong {
+  display: block;
+  font-size: 0.73rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.gm-members-panel li strong small {
+  font-weight: 400;
+  color: #a2a398;
+  font-size: 0.64rem;
+}
+.gm-members-panel li > div > span {
+  color: #a1a69a;
+  font-size: 0.59rem;
+}
+.gm-member-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #78af8d;
+}
+.gm-member-status.incomplete {
+  background: #c9ad72;
+}
+.gm-members-panel > p {
+  border-top: 1px solid #edf0e8;
+  padding-top: 15px;
+  margin: 12px 0 0;
+  color: #9aa18f;
+  font-size: 0.62rem;
+  line-height: 1.7;
+}
+.gm-email-invite {
+  padding-top: 14px;
+}
+.gm-email-invite summary {
+  color: #8c7c9a;
+  font-size: 0.64rem;
+  cursor: pointer;
+}
+.gm-email-invite form {
+  padding-top: 14px;
+}
+.gm-email-invite input,
+.gm-email-invite select {
+  margin-bottom: 12px;
+}
+.gm-email-invite p {
+  font-size: 0.68rem;
+}
+.gm-how-it-works {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 2px 10px;
+  color: #8a977f;
+}
+.gm-how-it-works > span {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #a3b498;
+}
+.gm-how-it-works strong {
+  font-size: 0.69rem;
+  color: #73836c;
+}
+.gm-how-it-works p {
+  margin: 7px 0 0;
+  font-size: 0.65rem;
+  line-height: 1.8;
+}
+.gm-meetings .gm-section-heading {
+  margin-bottom: 20px;
+}
+.gm-meeting-empty {
+  padding: 18px 0 5px;
+  color: #929b86;
+  font-size: 0.76rem;
+  line-height: 1.8;
+}
+.gm-meeting-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 18px 0;
+  border-top: 1px solid #edf0e8;
+  scroll-margin-top: 24px;
+}
+.gm-meeting-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 55px;
+  border-radius: 10px;
+  background: #f1edf7;
+  color: #9a84b1;
+}
+.gm-meeting-date span {
+  font-size: 0.52rem;
+  text-transform: uppercase;
+}
+.gm-meeting-date strong {
+  font-size: 1.2rem;
+  color: #79618f;
+  font-weight: 600;
+}
+.gm-meeting-copy {
+  flex: 1;
+  min-width: 140px;
+}
+.gm-meeting-copy h3 {
+  margin: 0 0 4px;
+  font-size: 0.83rem;
+}
+.gm-meeting-copy p {
+  margin: 0 0 3px;
+  color: #849178;
+  font-size: 0.67rem;
+}
+.gm-meeting-copy small {
+  color: #a5ad9b;
+  font-size: 0.59rem;
+}
+.gm-meeting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.gm-requested-meeting {
+  outline: 2px solid #ad96c9;
+  outline-offset: 5px;
+  border-radius: 10px;
+}
+.gm-message {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 15px 19px;
+  margin-bottom: 20px;
+  border: 1px solid;
+  border-radius: 12px;
+  font-size: 0.77rem;
+}
+.gm-success {
+  border-color: #d3e5d2;
+  background: #eaf5e8;
+  color: #4d7752;
+}
+.gm-error {
+  border-color: #ead0d5;
+  background: #fcf0f0;
+  color: #a15c68;
+}
+.gm-message button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-decoration: underline;
+  font-size: inherit;
+}
+.gm-inline-error {
+  color: #aa5968;
+  font-size: 0.73rem;
+  line-height: 1.7;
+  margin: 10px 0 0;
+}
+.gm-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 90px 20px;
+  color: #89917e;
+  font-size: 0.8rem;
+}
+.gm-spinner {
+  width: 19px;
+  height: 19px;
+  border: 2px solid #ded5ed;
+  border-top-color: #9273b7;
+  border-radius: 50%;
+  animation: gm-spin 1s linear infinite;
+}
+@keyframes gm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.gm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 32px 0 8px;
+  color: #a5ad9b;
+  font-size: 0.61rem;
+}
+.gm-modal-backdrop {
+  position: fixed;
+  z-index: 1070;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: #2a293e69;
+  backdrop-filter: blur(5px);
+}
+.gm-modal {
+  width: min(100%, 450px);
+  max-height: calc(100dvh - 44px);
+  overflow-y: auto;
+  padding: 30px;
+  border: 1px solid #ede7ef;
+  border-radius: 23px;
+  background: #fffdfd;
+  box-shadow: 0 24px 80px #27203730;
+  color: #514560;
+}
+.gm-modal h2 {
+  font-size: 1.2rem;
+  margin: 0 0 16px;
+}
+.gm-modal p {
+  font-size: 0.8rem;
+  line-height: 1.8;
+  color: #8b7d96;
+}
+.gm-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 23px;
+}
+.gm-invitation-row {
+  padding: 18px 0;
+  border-top: 1px solid #ece6f0;
+}
+.gm-invitation-row p {
+  margin-bottom: 0;
+}
+.gm-invitation-row .gm-modal-actions {
+  margin-top: 13px;
+}
+.gm-invitation-row small {
+  color: #8a9c7c;
+  text-transform: capitalize;
+}
+@media (min-width: 1700px) {
+  .gm-planner-layout {
+    grid-template-columns: minmax(0, 1fr) 330px;
+    gap: 28px;
+  }
+  .gm-booking-panel {
+    padding: 30px;
+  }
+}
+@media (max-width: 1250px) {
+  .app .gm-main {
+    padding: 22px;
+  }
+  .gm-planner-layout {
+    grid-template-columns: minmax(0, 1fr) 265px;
+    gap: 17px;
+  }
+  .gm-availability-panel {
+    padding: 22px 16px 15px;
+  }
+  .gm-date-row {
+    grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+  }
+  .gm-duration-picker {
+    grid-column: 1/-1;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-top: 4px;
+  }
+  .gm-duration-picker legend {
+    float: left;
+    margin: 0;
+  }
+  .gm-duration-picker > div {
+    flex: 1;
+    justify-content: space-around;
+  }
+  .gm-hero-art {
+    margin-right: 0;
+    flex-basis: 240px;
+  }
+  .gm-share-card {
+    padding: 16px;
+  }
+  .gm-share-card > div {
+    gap: 9px;
+  }
+  .gm-group-code {
+    font-size: 1.1rem;
+  }
+}
+@media (max-width: 1099px) {
+  .gm-planner-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .gm-planner-aside {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+  .gm-how-it-works {
+    grid-column: 1/-1;
+  }
+  .gm-hero {
+    padding: 30px;
+  }
+  .gm-hero-art {
+    flex-basis: 205px;
+    transform: scale(0.9);
+    transform-origin: right center;
+  }
+  .gm-mini-calendar {
+    width: 225px;
+  }
+  .gm-preferences summary > span {
+    float: none;
+    margin-left: 10px;
+  }
+  .gm-date-row {
+    grid-template-columns: minmax(0, 1fr) 15px minmax(0, 1fr) auto;
+  }
+  .gm-duration-picker {
+    grid-column: auto;
+    display: block;
+    margin-top: 0;
+  }
+  .gm-duration-picker legend {
+    float: none;
+    margin-bottom: 7px;
+  }
+}
+@media (max-width: 767px) {
+  .app .gm-main {
+    padding: 18px 16px;
+  }
+  .gm-topbar {
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .gm-backlinks {
+    gap: 11px;
+  }
+  .gm-topbar .gm-text-button {
+    font-size: 0.68rem !important;
+  }
+  .gm-notification-button {
+    min-height: 35px;
+    padding: 6px 10px;
+    font-size: 0.65rem !important;
+  }
+  .gm-notification-button :deep(svg) {
+    width: 17px;
+  }
+  .gm-hero {
+    padding: 28px 24px;
+    border-radius: 21px;
+    gap: 15px;
+  }
+  .gm-hero-art {
+    display: none;
+  }
+  .gm-app .gm-hero h1 {
+    font-size: 2.25rem;
+  }
+  .gm-intro {
+    font-size: 0.8rem;
+  }
+  .gm-kicker {
+    font-size: 0.55rem;
+  }
+  .gm-journey {
+    row-gap: 10px;
+    font-size: 0.58rem;
+  }
+  .gm-journey b {
+    width: 20px;
+    height: 20px;
+    font-size: 0.5rem;
+  }
+  .gm-journey i {
+    display: none;
+  }
+  .gm-hero-detail {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .gm-hero-detail .gm-intro {
+    max-width: 100%;
+  }
+  .gm-share-card {
+    width: 100%;
+    margin-top: 5px;
+  }
+  .gm-share-card > div {
+    justify-content: space-between;
+  }
+  .gm-share-card small {
+    max-width: 100%;
+  }
+  .gm-group-code {
+    font-size: 1.25rem;
+  }
+  .gm-entry-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .gm-entry-grid .gm-panel {
+    padding: 25px;
+  }
+  .gm-group-list {
+    gap: 13px;
+  }
+  .gm-group-card {
+    padding: 22px;
+  }
+  .gm-soft-label {
+    display: none;
+  }
+  .gm-planner-aside {
+    display: flex;
+  }
+  .gm-group-toolbar {
+    gap: 12px;
+  }
+  .gm-toolbar-actions {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .gm-planner-main > section + section {
+    margin-top: 20px;
+  }
+  .gm-availability-panel {
+    padding: 22px 14px 14px;
+  }
+  .gm-app .gm-availability-panel h2 {
+    font-size: 1.07rem;
+  }
+  .gm-live-pill {
+    font-size: 0.5rem;
+  }
+  .gm-panel-description {
+    font-size: 0.68rem;
+  }
+  .gm-date-row {
+    grid-template-columns: minmax(0, 1fr) 10px minmax(0, 1fr);
+    gap: 6px;
+  }
+  .gm-date-row input {
+    padding: 9px 5px;
+    font-size: 0.68rem;
+  }
+  .gm-duration-picker {
+    display: flex;
+    grid-column: 1/-1;
+    align-items: center;
+    gap: 15px;
+    margin-top: 10px;
+  }
+  .gm-duration-picker legend {
+    float: left;
+    margin: 0;
+    font-size: 0.65rem;
+  }
+  .gm-duration-picker > div {
+    flex: 1;
+  }
+  .gm-preferences summary {
+    font-size: 0.63rem;
+  }
+  .gm-preferences summary > span {
+    display: block;
+    margin: 7px 0 0;
+    font-size: 0.59rem;
+  }
+  .gm-preferences-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gm-preferences-fields > div:last-child {
+    grid-column: 1/-1;
+  }
+  .gm-preferences p {
+    font-size: 0.63rem;
+  }
+  .gm-grid-heading {
+    font-size: 0.65rem;
+  }
+  .gm-grid-heading small {
+    display: none;
+  }
+  .gm-timezone {
+    font-size: 0.52rem;
+  }
+  .gm-source-strip {
+    font-size: 0.56rem;
+  }
+  .gm-suggestion-list {
+    grid-template-columns: 1fr;
+  }
+  .gm-suggestion-list > button {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 17px;
+  }
+  .gm-suggestion-list .gm-suggestion-label {
+    grid-column: 1/-1;
+  }
+  .gm-suggestion-list i {
+    grid-column: 1/-1;
+    margin-top: 5px;
+  }
+  .gm-suggestion-list strong {
+    font-size: 0.9rem;
+  }
+  .gm-panel {
+    padding: 22px;
+  }
+  .gm-meeting-row {
+    gap: 12px;
+  }
+  .gm-meeting-actions {
+    margin-left: auto;
+  }
+  .gm-booking-panel {
+    padding: 27px 24px 24px;
+  }
+  .gm-book-button {
+    font-size: 0.75rem !important;
+  }
+  .gm-footer {
+    font-size: 0.56rem;
+    line-height: 1.7;
+  }
+  .gm-modal {
+    padding: 25px;
+  }
+  .gm-modal-actions > button {
+    flex: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gm-group-card,
+  .gm-button,
+  .gm-suggestion-list > button {
+    transition: none;
+  }
+  .gm-spinner {
+    animation: none;
+  }
+}
 </style>
-

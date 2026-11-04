@@ -4,6 +4,8 @@ import { useRoute } from 'vue-router'
 import axios from 'axios'
 import PlannerNavigation from './PlannerNavigation.vue'
 import GoogleActivityMap from './GoogleActivityMap.vue'
+import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
+import { getTaskUrgency } from '../utils/taskUrgency'
 
 const route = useRoute()
 
@@ -30,6 +32,7 @@ const presetPlaces = [
 
 const activities = ref([])
 const forecasts = ref({})
+const weatherAlertsOpen = ref(true)
 const loading = ref(true)
 const loadError = ref('')
 const formError = ref('')
@@ -247,10 +250,22 @@ function hasLocation(activity) {
 
 const visibleActivities = computed(() => {
 	const now = new Date()
+	const periodStart = new Date(now)
+	periodStart.setHours(0, 0, 0, 0)
+	if (timeFilter.value === 'week') {
+		periodStart.setDate(periodStart.getDate() - (periodStart.getDay() + 6) % 7)
+	}
+	const periodEnd = new Date(periodStart)
+	periodEnd.setDate(periodEnd.getDate() + (timeFilter.value === 'week' ? 7 : 1))
+
 	return activities.value
 		.filter((item) => {
 			if (timeFilter.value === 'all') return true
-			const isPast = new Date(item.end) < now
+			const end = new Date(item.end)
+			if (timeFilter.value === 'today' || timeFilter.value === 'week') {
+				return new Date(item.when) < periodEnd && end > periodStart
+			}
+			const isPast = end < now
 			return timeFilter.value === 'past' ? isPast : !isPast
 		})
 		.sort((first, second) =>
@@ -258,7 +273,11 @@ const visibleActivities = computed(() => {
 				? new Date(second.when) - new Date(first.when)
 				: new Date(first.when) - new Date(second.when),
 		)
-		.map((item) => ({ ...item, weather: weatherFor(item) }))
+		.map((item) => ({
+			...item,
+			weather: weatherFor(item),
+			urgency: getTaskUrgency(item.when, { done: item.done, now, prefix: 'Starts', end: item.end }),
+		}))
 })
 
 const mappableActivities = computed(() => visibleActivities.value.filter(hasLocation))
@@ -498,9 +517,17 @@ async function loadActivities() {
 	}
 }
 
+function openRequestedActivity() {
+  if (typeof route.query.edit !== 'string') return
+  const activity = activities.value.find(item => String(item.id) === route.query.edit)
+	if (activity) { loadError.value = ''; startEdit(activity) }
+  else loadError.value = 'This activity is no longer available.'
+}
+watch(() => route.query.edit, () => { if (!loading.value) openRequestedActivity() })
 onMounted(async () => {
-	await loadActivities()
-	if (route.query.new === '1') openNewForm()
+  await loadActivities()
+	if (route.query.edit && !loadError.value) openRequestedActivity()
+  else if (route.query.new === '1') openNewForm()
 })
 </script>
 
@@ -657,8 +684,20 @@ onMounted(async () => {
 
 
 				<section v-if="weatherAlerts.length" class="alert alert-warning weather-alerts" role="alert">
-					<strong>⚠️ Weather alert</strong>
-					<ul>
+					<button
+						type="button"
+						class="weather-alerts-toggle"
+						:aria-expanded="weatherAlertsOpen"
+						aria-controls="activity-weather-alert-details"
+						@click="weatherAlertsOpen = !weatherAlertsOpen"
+					>
+						<strong>⚠️ Weather alert ({{ weatherAlerts.length }})</strong>
+						<span class="weather-alerts-action">
+							{{ weatherAlertsOpen ? 'Hide details' : 'Show details' }}
+							<span class="weather-alerts-chevron" :class="{ open: weatherAlertsOpen }" aria-hidden="true"></span>
+						</span>
+					</button>
+					<ul id="activity-weather-alert-details" v-show="weatherAlertsOpen">
 						<li v-for="item in weatherAlerts" :key="item.id">
 							<b>{{ item.title }}</b> ({{ formatDate(item.when) }}): {{ item.weather.detail }}.
 							<span v-if="item.better">
@@ -679,7 +718,9 @@ onMounted(async () => {
 								<label class="time-filter">
 									<span>Show</span>
 									<select v-model="timeFilter" class="form-select form-select-sm">
-										<option value="upcoming">Upcoming</option>
+										<option value="today">Today</option>
+										<option value="week">This week</option>
+										<option value="upcoming">All upcoming</option>
 										<option value="past">Past</option>
 										<option value="all">All</option>
 									</select>
@@ -733,6 +774,7 @@ onMounted(async () => {
 								<template v-else>
 									<div v-for="activity in visibleActivities" :id="`activity-${activity.id}`"
 										:key="activity.id" class="activity-row"
+										:data-urgency="activity.urgency?.level"
 										:class="{ selected: activity.id === selectedId, done: activity.done }">
 										<input type="checkbox" :checked="activity.done"
 											:aria-label="`Mark ${activity.title} as done`"
@@ -744,6 +786,7 @@ onMounted(async () => {
 											</span>
 											<span class="activity-info">
 												<strong>{{ activity.title }}</strong>
+												<TaskUrgencyBadge :urgency="activity.urgency" />
 												<span>{{ formatWhen(activity) }}</span>
 												<span v-if="activity.place">📍 {{ activity.place }}</span>
 												<span v-if="activity.weather.detail">{{ activity.weather.detail
@@ -863,6 +906,43 @@ onMounted(async () => {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.weather-alerts-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 0.5rem 1rem;
+	width: 100%;
+	min-height: 36px;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.weather-alerts-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.6rem;
+	font-size: 0.8rem;
+	font-weight: 600;
+}
+
+.weather-alerts-chevron {
+	width: 7px;
+	height: 7px;
+	border-right: 2px solid currentColor;
+	border-bottom: 2px solid currentColor;
+	transform: rotate(45deg);
+}
+
+.weather-alerts-chevron.open {
+	transform: rotate(225deg);
 }
 
 .weather-alerts ul {
@@ -1131,6 +1211,22 @@ onMounted(async () => {
 .activity-row.selected {
 	background: var(--brand-soft);
 	border-left-color: var(--brand);
+}
+
+.activity-row[data-urgency='urgent'] {
+	border-left-color: var(--red);
+}
+
+.activity-row[data-urgency='soon'] {
+	border-left-color: #ad782b;
+}
+
+.activity-row[data-urgency='week'] {
+	border-left-color: var(--brand);
+}
+
+.activity-row[data-urgency='active'] {
+	border-left-color: var(--green);
 }
 
 .activity-row.done .row-main {

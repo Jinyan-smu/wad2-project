@@ -1,14 +1,17 @@
 'use strict'
 
+const { randomInt } = require('node:crypto')
+
 /*
  * Group Meetings domain logic.
  *
- * Three independent pieces of behaviour live here, both kept free of Express and
+ * Four independent pieces of behaviour live here, kept free of Express and
  * of file I/O so they can be unit tested directly:
  *
  *   1. Availability matching  -> buildWindow() + evaluateReadiness() + findCommonTimes()
  *   2. Booking a meeting       -> validateBookingDraft() + findBookingConflicts()
  *   3. Invitation state machine -> checkInvitationAllowed() + applyInvitationResponse()
+ *   4. Group membership        -> createGroupCode() + joinGroupByCode() + leaveGroup()
  *
  * Time conventions used everywhere in this module:
  *   - Timestamps are epoch milliseconds internally, ISO 8601 UTC strings at the edges.
@@ -25,10 +28,13 @@ const DAY = 24 * 60 * MINUTE
 
 const STEP_MINUTES = 15
 const ALLOWED_DURATIONS = [30, 60, 90]
+const ALLOWED_ASSIGNMENT_BUFFERS = [0, 30, 60, 90, 120]
 const MAX_RANGE_DAYS = 31
 const MAX_SLOTS = 240
 const MAX_GROUP_MEMBERS = 12
 const MAX_GROUP_NAME = 80
+const GROUP_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const GROUP_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/
 
 const MIN_MEETING_MINUTES = 15
 const MAX_MEETING_MINUTES = 8 * 60
@@ -110,6 +116,15 @@ function minutesBetween(start, end) {
   return Math.round((end - start) / MINUTE)
 }
 
+function validateAssignmentBuffer(value) {
+  const minutes = value === undefined ? 60 : Number(value)
+  if ((value !== undefined && !['number', 'string'].includes(typeof value)) ||
+      (typeof value === 'string' && value.trim() === '') || !ALLOWED_ASSIGNMENT_BUFFERS.includes(minutes)) {
+    throw new ValidationError('Assignment buffer must be 0, 30, 60, 90, or 120 minutes.')
+  }
+  return minutes
+}
+
 /**
  * Turns the four form inputs into concrete per-day search windows.
  * Multi-day ranges repeat the same daily window (e.g. 09:00-18:00 every day)
@@ -152,6 +167,7 @@ function buildWindow(input = {}) {
     startTime,
     endTime,
     durationMinutes,
+    assignmentBufferMinutes: validateAssignmentBuffer(input.assignmentBufferMinutes),
     stepMinutes: STEP_MINUTES,
     days,
     start: days[0].start,
@@ -305,7 +321,7 @@ function evaluateReadiness({ group, members, shares, windowStart, windowEnd }) {
  * Because the result is derived from the union, "free for everyone" is exact:
  * a slot is emitted only when it overlaps nobody's busy interval.
  */
-function findCommonTimes({ memberIds, busyIntervals, window }) {
+function findCommonTimes({ memberIds, busyIntervals, window, now = -Infinity }) {
   const selected = new Set(memberIds)
   const relevant = normalizeIntervals(busyIntervals).filter((item) => selected.has(item.userId))
   const busyMerged = mergeIntervals(relevant)
@@ -318,7 +334,7 @@ function findCommonTimes({ memberIds, busyIntervals, window }) {
   let truncated = false
 
   for (const day of window.days) {
-    const gaps = freeGaps(day.start, day.end, busyMerged)
+    const gaps = freeGaps(Math.max(day.start, now), day.end, busyMerged)
     const blocks = []
     let freeMinutes = 0
 
@@ -362,7 +378,90 @@ function findCommonTimes({ memberIds, busyIntervals, window }) {
     if (truncated) break
   }
 
-  return { days, best, totalSlots, truncated }
+  return {
+    days, best, totalSlots, truncated,
+    availability: buildAvailabilityGrid({ memberIds, busyIntervals, window, now }),
+  }
+}
+
+/** The complete 15-minute grid is independent of the suggestion-list cap. */
+function buildAvailabilityGrid({ memberIds, busyIntervals, window, now = -Infinity }) {
+  const selected = new Set(memberIds)
+  const relevant = normalizeIntervals(busyIntervals).filter(item => selected.has(item.userId))
+  const stepMs = window.stepMinutes * MINUTE
+  const durationMs = window.durationMinutes * MINUTE
+  const days = window.days.map(day => {
+    const cells = []
+    for (let start = day.start; start < day.end; start += stepMs) {
+      const end = Math.min(start + stepMs, day.end)
+      const busy = new Set(relevant.filter(item => item.start < end && item.end > start).map(item => item.userId))
+      const bookingEnd = start + durationMs
+      cells.push({
+        startAt: toIso(start),
+        endAt: toIso(end),
+        freeCount: selected.size - busy.size,
+        totalCount: selected.size,
+        busyMemberIds: memberIds.filter(userId => busy.has(userId)),
+        canBook: selected.size > 0 && start >= now && bookingEnd <= day.end &&
+          !relevant.some(item => item.start < bookingEnd && item.end > start),
+      })
+    }
+    return { date: day.date, cells }
+  })
+  return { stepMinutes: window.stepMinutes, days }
+}
+
+/** Convert private planner records into intervals and aggregate counts only. */
+function buildPlannerBusyIntervals({
+  userId, activities = [], assignments = [], quizzes = [], progress = {},
+  assignmentBufferMinutes = 60, rangeStart = -Infinity, rangeEnd = Infinity,
+}) {
+  const buffer = validateAssignmentBuffer(assignmentBufferMinutes)
+  const busyIntervals = []
+  const sourceKeys = { activities: new Set(), assignments: new Set(), quizzes: new Set() }
+  const inactive = item => item.cancelled === true || item.Cancelled === true ||
+    ['cancelled', 'canceled', 'completed', 'done'].includes(String(item.status ?? item.Status ?? '').toLowerCase())
+  const append = (startValue, endValue) => {
+    const start = Date.parse(startValue)
+    const end = Date.parse(endValue)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start >= rangeEnd || end <= rangeStart) return false
+    busyIntervals.push({ userId, startAt: toIso(start), endAt: toIso(end) })
+    return true
+  }
+  for (const [index, activity] of activities.entries()) {
+    if (inactive(activity) || activity.done === true || activity.Done === true) continue
+    if (append(activity.when ?? activity.startAt, activity.end ?? activity.endAt)) {
+      sourceKeys.activities.add(String(activity.id ?? activity.Id ?? `${userId}:activity:${index}`))
+    }
+  }
+  for (const [kind, items] of [['assignment', assignments], ['quiz', quizzes]]) {
+    for (const [index, item] of items.entries()) {
+      const itemId = kind === 'quiz' ? item.QuizId ?? item.Id : item.Id
+      const progressKey = `${kind}:${item.CourseId}:${itemId}`
+      if (inactive(item) || (progress[progressKey] ?? item.Done ?? item.done ?? false)) continue
+      let included = false
+      for (const [startKey, endKey] of [
+        ['startAt', 'endAt'], ['StartAt', 'EndAt'], ['ScheduledStartAt', 'ScheduledEndAt'], ['StartDate', 'EndDate'],
+      ]) {
+        if (append(item[startKey], item[endKey])) { included = true; break }
+      }
+      const due = Date.parse(item.DueDate)
+      if (buffer > 0 && Number.isFinite(due)) {
+        included = append(toIso(due - buffer * MINUTE), toIso(due)) || included
+      }
+      if (included) {
+        sourceKeys[kind === 'assignment' ? 'assignments' : 'quizzes'].add(
+          `${item.IsCustom ? 'custom' : 'reference'}:${item.CourseId ?? ''}:${itemId ?? `${userId}:${index}`}`,
+        )
+      }
+    }
+  }
+  return {
+    busyIntervals,
+    sources: Object.fromEntries(Object.entries(sourceKeys).map(([kind, keys]) => [kind, keys.size])),
+    // These keys are internal to server-side aggregation; HTTP responses expose counts only.
+    sourceKeys: Object.fromEntries(Object.entries(sourceKeys).map(([kind, keys]) => [kind, [...keys]])),
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -410,7 +509,7 @@ function validateBookingDraft({ draft = {}, group, viewerId, now = Date.now() })
     throw new ValidationError(`A meeting can last at most ${MAX_MEETING_MINUTES / 60} hours.`)
   }
 
-  if (start < now - MINUTE) {
+  if (start < now) {
     throw new HttpError(400, 'That time is already in the past.', 'meeting_in_past')
   }
 
@@ -422,7 +521,10 @@ function validateBookingDraft({ draft = {}, group, viewerId, now = Date.now() })
     throw new ValidationError('Every participant must be a member of this group.')
   }
 
-  return { title, start, end, durationMinutes, participantIds: requested }
+  return {
+    title, start, end, durationMinutes, participantIds: requested,
+    assignmentBufferMinutes: validateAssignmentBuffer(draft.assignmentBufferMinutes),
+  }
 }
 
 /**
@@ -464,6 +566,7 @@ function buildMeetingRecords({ draft, groupId, createdBy, makeId, forced = false
     createdAt: new Date().toISOString(),
     // Recorded so an intentional double booking stays visible in the list.
     forced: forced === true,
+    assignmentBufferMinutes: draft.assignmentBufferMinutes,
   }
 
   const busyIntervals = draft.participantIds.map((userId) => ({
@@ -517,6 +620,116 @@ function checkMeetingCancellable({ meeting, group, actorId }) {
   }
 
   return true
+}
+
+/* ------------------------------------------------------------------ *
+ * Group join codes
+ * ------------------------------------------------------------------ */
+
+function normalizeGroupCode(value) {
+  const code = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  if (!GROUP_CODE_PATTERN.test(code)) {
+    throw new ValidationError('Enter the 8-character group code using letters and numbers.')
+  }
+  return code
+}
+
+function createGroupCode(groups) {
+  const used = new Set(groups.map(group => group.joinCode))
+  let code
+  do {
+    code = Array.from({ length: 8 }, () =>
+      GROUP_CODE_ALPHABET[randomInt(GROUP_CODE_ALPHABET.length)],
+    ).join('')
+  } while (used.has(code))
+  return code
+}
+
+/** Existing groups receive a persistent code under the store's write lock. */
+function ensureGroupCodes(groups) {
+  for (const group of groups) {
+    if (!group.joinCode) group.joinCode = createGroupCode(groups)
+  }
+}
+
+function joinGroupByCode({ groups, invitations, code, userId, now = Date.now() }) {
+  const normalized = normalizeGroupCode(code)
+  const group = groups.find(item => item.joinCode === normalized)
+  if (!group) {
+    throw new HttpError(404, 'No group matches that code. Check it with your teammate.', 'invalid_group_code')
+  }
+  if (group.memberIds.includes(userId)) {
+    throw new HttpError(409, 'You already belong to this group.', 'already_member')
+  }
+  if (group.memberIds.length >= MAX_GROUP_MEMBERS) {
+    throw new HttpError(409, `A group can hold at most ${MAX_GROUP_MEMBERS} members.`, 'group_full')
+  }
+
+  group.memberIds.push(userId)
+  // Joining fulfils any outstanding email invitations for the same group.
+  for (const invitation of invitations) {
+    if (invitation.groupId === group.id && invitation.toUserId === userId && invitation.status === 'pending') {
+      applyInvitationResponse({ invitation, group, actorId: userId, action: 'accept', now })
+    }
+  }
+  return group
+}
+
+/** Leaving also removes meeting commitments created by this group's membership. */
+function leaveGroup({ state, groupId, userId, now = Date.now() }) {
+  const group = state.groups.find(item => item.id === groupId)
+  if (!group) {
+    throw new HttpError(404, 'That group does not exist.', 'group_not_found')
+  }
+  if (!group.memberIds.includes(userId)) {
+    throw new HttpError(403, 'You are not a member of that group.', 'not_a_member')
+  }
+
+  group.memberIds = group.memberIds.filter(id => id !== userId)
+  const deleted = group.memberIds.length === 0
+  const groupMeetingIds = new Set(
+    state.meetings.filter(meeting => meeting.groupId === groupId).map(meeting => meeting.id),
+  )
+  const removedMeetingIds = new Set()
+
+  if (deleted) {
+    state.groups = state.groups.filter(item => item.id !== groupId)
+    state.invitations = state.invitations.filter(item => item.groupId !== groupId)
+    state.availabilityShares = state.availabilityShares.filter(item => item.groupId !== groupId)
+    if (state.defaultGroupId === groupId) state.defaultGroupId = null
+    for (const meetingId of groupMeetingIds) removedMeetingIds.add(meetingId)
+  } else {
+    if (group.ownerId === userId) group.ownerId = group.memberIds[0]
+    state.availabilityShares = state.availabilityShares.filter(
+      item => item.groupId !== groupId || item.userId !== userId,
+    )
+    for (const invitation of state.invitations) {
+      if (invitation.groupId === groupId && invitation.fromUserId === userId && invitation.status === 'pending') {
+        applyInvitationResponse({ invitation, group, actorId: userId, action: 'cancel', now })
+      }
+    }
+    for (const meeting of state.meetings) {
+      if (!groupMeetingIds.has(meeting.id) || !Array.isArray(meeting.participantIds)) continue
+      if (!meeting.participantIds.includes(userId)) continue
+      meeting.participantIds = meeting.participantIds.filter(id => id !== userId)
+      // An empty meeting is cancelled using the same record-removal convention
+      // as the normal meeting cancellation endpoint.
+      if (meeting.participantIds.length === 0) removedMeetingIds.add(meeting.id)
+    }
+  }
+
+  state.meetings = state.meetings.filter(meeting => !removedMeetingIds.has(meeting.id))
+  state.busyIntervals = state.busyIntervals.filter(interval =>
+    !removedMeetingIds.has(interval.sourceMeetingId) &&
+    !(groupMeetingIds.has(interval.sourceMeetingId) && interval.userId === userId),
+  )
+
+  return {
+    groupId,
+    groupName: group.name,
+    deleted,
+    newOwnerId: deleted ? null : group.ownerId,
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -627,7 +840,15 @@ module.exports = {
   ValidationError,
   MAX_GROUP_MEMBERS,
   MAX_GROUP_NAME,
+  normalizeGroupCode,
+  createGroupCode,
+  ensureGroupCodes,
+  joinGroupByCode,
+  leaveGroup,
   ALLOWED_DURATIONS,
+  validateAssignmentBuffer,
+  buildAvailabilityGrid,
+  buildPlannerBusyIntervals,
   MIN_MEETING_MINUTES,
   MAX_MEETING_MINUTES,
   INVITATION_STATUSES,

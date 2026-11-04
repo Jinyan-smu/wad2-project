@@ -207,6 +207,45 @@ async function saveCourseworkProgress(userId, kind, courseId, itemId, done) {
   )
 }
 
+/** All registered participants are read afresh; sample members keep their fixture calendars. */
+async function loadGroupAvailability({ state, memberIds, assignmentBufferMinutes, rangeStart, rangeEnd }) {
+  const selected = new Set(memberIds)
+  const registered = new Set((await readUsers()).map(user => user.id))
+  const busyIntervals = state.busyIntervals.filter(item => selected.has(item.userId))
+  const overlaps = item => Date.parse(item.startAt) < rangeEnd && Date.parse(item.endAt) > rangeStart
+  const sourceIntervals = busyIntervals.filter(overlaps)
+  const sourceKeys = {
+    activities: new Set(sourceIntervals.filter(item => !registered.has(item.userId) && !item.sourceMeetingId)
+      .map(item => `saved:${item.id ?? `${item.userId}:${item.startAt}:${item.endAt}`}`)),
+    assignments: new Set(),
+    quizzes: new Set(),
+    meetings: new Set(sourceIntervals.filter(item => item.sourceMeetingId).map(item => item.sourceMeetingId)),
+  }
+  const live = await Promise.all(memberIds.filter(userId => registered.has(userId)).map(async userId => {
+    const [activities, assignments, quizzes, customAssignments, progress] = await Promise.all([
+      listActivities(userId), listReferenceAssignments(userId), listReferenceQuizzes(userId),
+      listCustomAssignments(userId), getCourseworkProgress(userId),
+    ])
+    return groupMeetings.buildPlannerBusyIntervals({
+      userId, activities, assignments: [...assignments, ...customAssignments], quizzes, progress,
+      assignmentBufferMinutes, rangeStart, rangeEnd,
+    })
+  }))
+  for (const result of live) {
+    busyIntervals.push(...result.busyIntervals)
+    for (const kind of ['activities', 'assignments', 'quizzes']) {
+      for (const key of result.sourceKeys[kind]) sourceKeys[kind].add(key)
+    }
+  }
+  return {
+    busyIntervals,
+    sources: {
+      ...Object.fromEntries(Object.entries(sourceKeys).map(([kind, keys]) => [kind, keys.size])),
+      assignmentBufferMinutes,
+    },
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Group Meetings storage
  * ------------------------------------------------------------------ */
@@ -218,11 +257,12 @@ async function seedGroupStore() {
     version: 1,
     seededAt: new Date().toISOString()
   }
+  groupMeetings.ensureGroupCodes(state.groups)
   return state
 }
 
 async function readGroupStore() {
-  return database.withTransaction(async client => {
+  const state = await database.withTransaction(async client => {
     const existing = await client.query(
       'select state from planner_private.group_meeting_state where singleton = true'
     )
@@ -238,6 +278,11 @@ async function readGroupStore() {
     )
     return rows[0].state
   })
+  // Upgrade old groups once, using the same lock as group creation and joining.
+  if (state.groups.some(group => !group.joinCode)) {
+    return updateGroupStore(current => current)
+  }
+  return state
 }
 
 let groupStoreLock = Promise.resolve()
@@ -266,6 +311,7 @@ function updateGroupStore(mutator) {
           'select state from planner_private.group_meeting_state where singleton = true for update'
         )).rows[0].state
       }
+      groupMeetings.ensureGroupCodes(state.groups)
       const outcome = await mutator(state)
       await client.query(
         `update planner_private.group_meeting_state
@@ -335,6 +381,7 @@ function buildGroupMeetingsView(state, viewer, users) {
   const groups = myGroups.map(group => ({
     id: group.id,
     name: group.name,
+    joinCode: group.joinCode,
     ownerId: group.ownerId,
     isOwner: group.ownerId === viewer.id,
     memberCount: group.memberIds.length,
@@ -428,7 +475,8 @@ function sanitizeDefaults(preferences = {}) {
     toDate: fromDate === preferences.fromDate && preferences.toDate ? preferences.toDate : shift(fromDate, 2),
     startTime: preferences.startTime || '09:00',
     endTime: preferences.endTime || '18:00',
-    durationMinutes: preferences.durationMinutes || 60
+    durationMinutes: preferences.durationMinutes || 60,
+    assignmentBufferMinutes: groupMeetings.validateAssignmentBuffer(preferences.assignmentBufferMinutes)
   }
 }
 
@@ -438,6 +486,7 @@ function windowSummary(window) {  return {
     startTime: window.startTime,
     endTime: window.endTime,
     durationMinutes: window.durationMinutes,
+    assignmentBufferMinutes: window.assignmentBufferMinutes,
     stepMinutes: window.stepMinutes
   }
 }
@@ -461,10 +510,6 @@ function meetingActivitiesFor(userId) {
           meeting,
           state.groups.find(group => group.id === meeting.groupId)?.name
         ))
-    })
-    .catch(error => {
-      console.warn('Could not read group meetings for the planner timeline:', error.message)
-      return []
     })
 }
 
@@ -527,7 +572,7 @@ app.get('/api/planner-data', requireLogin, async (req, res, next) => {
         EventDate: item.DueDate || item.StartDate || null,
         EventDateLabel: item.DueDate ? 'Due' : item.StartDate ? 'Available' : 'No date',
         IsCustom: false,
-        Done: Boolean(userProgress[`quiz:${courseId}:${item.QuizId ?? item.Id}`])
+        Done: Boolean(userProgress[`quiz:${courseId}:${item.QuizId ?? item.Id}`] ?? item.Done)
       }
     })
 
@@ -807,7 +852,7 @@ app.get('/api/group-meetings', requireLogin, async (req, res, next) => {
 })
 
 // Common free time. Returns { status: 'blocked', blockers } when any selected
-// member has not shared, has an incomplete calendar or has insufficient
+// member has an incomplete calendar or has insufficient
 // coverage - missing information is UNKNOWN, never FREE.
 app.post('/api/group-meetings/common-time', requireLogin, async (req, res, next) => {
   try {
@@ -846,14 +891,21 @@ app.post('/api/group-meetings/common-time', requireLogin, async (req, res, next)
         days: [],
         best: null,
         totalSlots: 0,
-        truncated: false
+        truncated: false,
+        availability: { stepMinutes: window.stepMinutes, days: [] },
+        sources: { activities: 0, assignments: 0, quizzes: 0, meetings: 0, assignmentBufferMinutes: window.assignmentBufferMinutes }
       })
     }
 
+    const live = await loadGroupAvailability({
+      state, memberIds: group.memberIds, assignmentBufferMinutes: window.assignmentBufferMinutes,
+      rangeStart: window.start, rangeEnd: window.end
+    })
     const result = groupMeetings.findCommonTimes({
       memberIds: group.memberIds,
-      busyIntervals: state.busyIntervals,
-      window
+      busyIntervals: live.busyIntervals,
+      window,
+      now: Date.now()
     })
 
     res.json({
@@ -862,6 +914,7 @@ app.post('/api/group-meetings/common-time', requireLogin, async (req, res, next)
       window: windowSummary(window),
       members,
       blockers: [],
+      sources: live.sources,
       ...result
     })
   } catch (error) {
@@ -881,11 +934,15 @@ app.post('/api/group-meetings/meetings/preview', requireLogin, async (req, res, 
       viewerId: req.session.user.id
     })
 
+    const live = await loadGroupAvailability({
+      state, memberIds: draft.participantIds, assignmentBufferMinutes: draft.assignmentBufferMinutes,
+      rangeStart: draft.start, rangeEnd: draft.end
+    })
     const conflicts = groupMeetings.findBookingConflicts({
       participantIds: draft.participantIds,
       start: draft.start,
       end: draft.end,
-      busyIntervals: state.busyIntervals,
+      busyIntervals: live.busyIntervals,
       members: state.members
     })
 
@@ -894,7 +951,9 @@ app.post('/api/group-meetings/meetings/preview', requireLogin, async (req, res, 
       durationMinutes: draft.durationMinutes,
       participantIds: draft.participantIds,
       startAt: groupMeetings.toIso(draft.start),
-      endAt: groupMeetings.toIso(draft.end)
+      endAt: groupMeetings.toIso(draft.end),
+      sources: live.sources,
+      assignmentBufferMinutes: draft.assignmentBufferMinutes
     })
   } catch (error) {
     sendGroupError(error, res, next)
@@ -909,7 +968,7 @@ app.post('/api/group-meetings/meetings', requireLogin, async (req, res, next) =>
   try {
     const force = req.body?.force === true
 
-    const result = await updateGroupStore(state => {
+    const result = await updateGroupStore(async state => {
       const group = findGroupForViewer(state, req.body?.groupId, req.session.user.id)
       const draft = groupMeetings.validateBookingDraft({
         draft: req.body || {},
@@ -917,11 +976,15 @@ app.post('/api/group-meetings/meetings', requireLogin, async (req, res, next) =>
         viewerId: req.session.user.id
       })
 
+      const live = await loadGroupAvailability({
+        state, memberIds: draft.participantIds, assignmentBufferMinutes: draft.assignmentBufferMinutes,
+        rangeStart: draft.start, rangeEnd: draft.end
+      })
       const conflicts = groupMeetings.findBookingConflicts({
         participantIds: draft.participantIds,
         start: draft.start,
         end: draft.end,
-        busyIntervals: state.busyIntervals,
+        busyIntervals: live.busyIntervals,
         members: state.members
       })
 
@@ -1007,6 +1070,7 @@ app.post('/api/group-meetings/groups', requireLogin, async (req, res, next) => {
       const created = {
         id: `group-${crypto.randomUUID()}`,
         name,
+        joinCode: groupMeetings.createGroupCode(state.groups),
         ownerId: req.session.user.id,
         memberIds: [req.session.user.id],
         createdAt: new Date().toISOString()
@@ -1019,6 +1083,40 @@ app.post('/api/group-meetings/groups', requireLogin, async (req, res, next) => {
     })
 
     res.status(201).json({ group })
+  } catch (error) {
+    sendGroupError(error, res, next)
+  }
+})
+
+app.post('/api/group-meetings/groups/join', requireLogin, async (req, res, next) => {
+  try {
+    // Validate before acquiring the store lock; membership checks stay inside it.
+    const code = groupMeetings.normalizeGroupCode(req.body?.code)
+    const group = await updateGroupStore(state => {
+      const joined = groupMeetings.joinGroupByCode({
+        groups: state.groups,
+        invitations: state.invitations,
+        code,
+        userId: req.session.user.id
+      })
+      ensureMemberProfile(state, req.session.user.id, req.session.user.username)
+      setShareFlag(state, joined.id, req.session.user.id, false)
+      return joined
+    })
+    res.status(201).json({ group })
+  } catch (error) {
+    sendGroupError(error, res, next)
+  }
+})
+
+app.post('/api/group-meetings/groups/:id/leave', requireLogin, async (req, res, next) => {
+  try {
+    const result = await updateGroupStore(state => groupMeetings.leaveGroup({
+      state,
+      groupId: req.params.id,
+      userId: req.session.user.id
+    }))
+    res.json(result)
   } catch (error) {
     sendGroupError(error, res, next)
   }
@@ -1264,13 +1362,17 @@ app.use((req, res) => {
     res.status(404).type('text/plain').send('Not found');
 });
 
-database.query('select 1').then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}/`)
+if (require.main === module) {
+  database.query('select 1').then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running at http://localhost:${PORT}/`)
+    })
+  }).catch(error => {
+    console.error('Could not connect to Supabase. Check DATABASE_URL in server/.env.', error.message)
+    database.close().finally(() => {
+      process.exitCode = 1
+    })
   })
-}).catch(error => {
-  console.error('Could not connect to Supabase. Check DATABASE_URL in server/.env.', error.message)
-  database.close().finally(() => {
-    process.exitCode = 1
-  })
-})
+}
+
+module.exports = app
