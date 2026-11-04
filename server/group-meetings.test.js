@@ -177,6 +177,45 @@ test('a missing group or non-member cannot change group state by leaving', () =>
   assert.deepEqual(state, before)
 })
 
+test('an owner removes a member and their group commitments without affecting other groups', () => {
+  const state = stateForLeaving()
+  state.invitations.push(
+    { id: 'incoming', groupId: 'g1', fromUserId: 'owner', toUserId: 'leaver', status: 'pending' },
+    { id: 'other-incoming', groupId: 'g2', fromUserId: 'owner', toUserId: 'leaver', status: 'pending' },
+  )
+  const result = gm.removeGroupMember({ state, groupId: 'g1', actorId: 'owner', memberId: 'leaver', now: 0 })
+  assert.equal(result.removedMemberId, 'leaver')
+  assert.equal(result.deleted, false)
+  assert.equal(state.groups[0].ownerId, 'owner')
+  assert.deepEqual(state.groups[0].memberIds, ['owner', 'remaining'])
+  assert.deepEqual(state.groups[1].memberIds, ['leaver'])
+  assert.deepEqual(state.meetings.find(meeting => meeting.id === 'joint').participantIds, ['owner'])
+  assert.deepEqual(state.meetings.map(meeting => meeting.id), ['joint', 'others', 'other-group'])
+  assert.deepEqual(state.busyIntervals.map(interval => interval.id), ['joint-owner', 'others-busy', 'other-group-busy', 'personal'])
+  assert.deepEqual(state.availabilityShares.map(share => [share.groupId, share.userId]), [['g1', 'owner'], ['g2', 'leaver']])
+  assert.equal(state.invitations.find(invite => invite.id === 'sent').status, 'cancelled')
+  assert.equal(state.invitations.find(invite => invite.id === 'incoming').status, 'cancelled')
+  assert.equal(state.invitations.find(invite => invite.id === 'incoming').respondedAt, '1970-01-01T00:00:00.000Z')
+  assert.equal(state.invitations.find(invite => invite.id === 'other-incoming').status, 'pending')
+  assert.equal(state.members[0].id, 'leaver')
+})
+
+test('removal rejects non-owners, the owner themselves, and missing groups or members without mutation', () => {
+  const state = stateForLeaving()
+  const before = structuredClone(state)
+  for (const actorId of ['leaver', 'remaining', 'outsider']) {
+    assert.throws(() => gm.removeGroupMember({ state, groupId: 'g1', actorId, memberId: 'leaver' }),
+      error => error.statusCode === 403 && error.code === 'not_group_owner')
+  }
+  assert.throws(() => gm.removeGroupMember({ state, groupId: 'g1', actorId: 'owner', memberId: 'owner' }),
+    error => error.statusCode === 409 && error.code === 'cannot_remove_owner')
+  assert.throws(() => gm.removeGroupMember({ state, groupId: 'g1', actorId: 'owner', memberId: 'missing' }),
+    error => error.statusCode === 404 && error.code === 'member_not_found')
+  assert.throws(() => gm.removeGroupMember({ state, groupId: 'missing', actorId: 'owner', memberId: 'leaver' }),
+    error => error.statusCode === 404 && error.code === 'group_not_found')
+  assert.deepEqual(state, before)
+})
+
 test('mergeIntervals coalesces overlapping and touching intervals', () => {
   const merged = gm.mergeIntervals([
     { start: 0, end: 60 },

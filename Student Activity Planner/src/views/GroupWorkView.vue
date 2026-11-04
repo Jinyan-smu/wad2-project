@@ -20,6 +20,8 @@ const bookingAnchor = ref(null)
 const bellButton = ref(null)
 const bellPanel = ref(null)
 const cancelLeaveButton = ref(null)
+const cancelRemoveButton = ref(null)
+const membersHeading = ref(null)
 
 const loading = ref(true)
 const loadError = ref('')
@@ -60,6 +62,10 @@ const bellOpen = ref(false)
 const confirmingLeave = ref(false)
 const leaving = ref(false)
 const leaveError = ref('')
+const memberToRemove = ref(null)
+const removingMember = ref(false)
+const removalError = ref('')
+let removeMemberTrigger
 let destroyed = false
 let stateRequest = 0
 let searchRequest = 0
@@ -258,6 +264,7 @@ watch(selectedGroupId, (groupId) => {
   bookingError.value = ''
   bookingNotice.value = ''
   confirmingLeave.value = false
+  memberToRemove.value = null
   confirmingMeetingId.value = ''
   copyNotice.value = ''
   inviteError.value = ''
@@ -496,6 +503,55 @@ function onLeaveDialogKeydown(event) {
     event.preventDefault()
     closeLeaveDialog()
   } else trapDialogTab(event, event.currentTarget)
+}
+function confirmMemberRemoval(member, event) {
+  if (!selectedGroup.value?.isOwner || member.isOwner || member.isViewer || removingMember.value) return
+  removeMemberTrigger = event.currentTarget
+  removalError.value = ''
+  memberToRemove.value = { ...member, groupId: selectedGroup.value.id, groupName: selectedGroup.value.name }
+  nextTick(() => cancelRemoveButton.value?.focus())
+}
+function closeRemoveDialog() {
+  if (removingMember.value) return
+  memberToRemove.value = null
+  nextTick(() => {
+    if (removeMemberTrigger?.isConnected) removeMemberTrigger.focus()
+  })
+}
+function onRemoveDialogKeydown(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeRemoveDialog()
+  } else trapDialogTab(event, event.currentTarget)
+}
+async function removeMember() {
+  const member = memberToRemove.value
+  if (!member || removingMember.value || !selectedGroup.value?.isOwner ||
+      selectedGroupId.value !== member.groupId) return
+  removingMember.value = true
+  removalError.value = ''
+  actionError.value = ''
+  actionNotice.value = ''
+  try {
+    await axios.delete(
+      `${API_URL}/group-meetings/groups/${encodeURIComponent(member.groupId)}/members/${encodeURIComponent(member.id)}`,
+      { withCredentials: true },
+    )
+    if (destroyed) return
+    memberToRemove.value = null
+    if (selectedGroupId.value === member.groupId) invalidateAvailability()
+    const refreshed = await loadGroupState({ silent: true })
+    if (refreshed && selectedGroupId.value === member.groupId) {
+      await findCommonTime({ quiet: true })
+      await nextTick()
+      membersHeading.value?.focus()
+    }
+    actionNotice.value = `${member.name} was removed from ${member.groupName} and its meetings.`
+  } catch (error) {
+    if (!destroyed) removalError.value = messageOf(error)
+  } finally {
+    removingMember.value = false
+  }
 }
 watch(confirmingLeave, async (open) => {
   if (open) {
@@ -1258,7 +1314,7 @@ onBeforeUnmount(() => {
                 </section>
                 <section class="gm-panel gm-members-panel" aria-labelledby="gm-members-title">
                   <div class="gm-section-heading">
-                    <h2 id="gm-members-title">The people</h2>
+                    <h2 id="gm-members-title" ref="membersHeading" tabindex="-1">The people</h2>
                     <span class="gm-member-count">{{ members.length }}</span>
                   </div>
                   <ul>
@@ -1285,6 +1341,16 @@ onBeforeUnmount(() => {
                             : 'Calendar needs attention'
                         "
                       ></span>
+                      <button
+                        v-if="selectedGroup.isOwner && !member.isOwner && !member.isViewer"
+                        type="button"
+                        class="gm-remove-member"
+                        :aria-label="`Remove ${member.name} from group`"
+                        :disabled="removingMember"
+                        @click="confirmMemberRemoval(member, $event)"
+                      >
+                        Remove
+                      </button>
                     </li>
                   </ul>
                   <p>Availability is shared. The details in each calendar stay private.</p>
@@ -1372,6 +1438,48 @@ onBeforeUnmount(() => {
             @click="leaveGroup"
           >
             {{ leaving ? 'Leaving…' : 'Leave group' }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div
+      v-if="memberToRemove && selectedGroup"
+      class="gm-modal-backdrop"
+      @click.self="closeRemoveDialog"
+    >
+      <div
+        class="gm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gm-remove-member-title"
+        aria-describedby="gm-remove-member-description"
+        :aria-busy="removingMember"
+        @keydown="onRemoveDialogKeydown"
+      >
+        <h2 id="gm-remove-member-title">Remove {{ memberToRemove.name }}?</h2>
+        <p id="gm-remove-member-description">
+          They will be removed from {{ memberToRemove.groupName }}, its meetings, and availability matching.
+          Their personal calendar entries and other groups will stay unchanged.
+        </p>
+        <p v-if="removalError" class="gm-inline-error" role="alert">{{ removalError }}</p>
+        <div class="gm-modal-actions">
+          <button
+            ref="cancelRemoveButton"
+            type="button"
+            class="gm-button gm-secondary"
+            :disabled="removingMember"
+            @click="closeRemoveDialog"
+          >
+            Keep member
+          </button>
+          <button
+            id="gm-confirm-remove-member"
+            type="button"
+            class="gm-button gm-danger"
+            :disabled="removingMember"
+            @click="removeMember"
+          >
+            {{ removingMember ? 'Removing…' : 'Remove member' }}
           </button>
         </div>
       </div>
@@ -2547,6 +2655,27 @@ onBeforeUnmount(() => {
 }
 .gm-member-status.incomplete {
   background: #c9ad72;
+}
+.gm-remove-member {
+  flex-shrink: 0;
+  border: 1px solid #e7c8c8;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: #fff;
+  color: #a13e3e;
+  font-size: 0.65rem;
+  cursor: pointer;
+}
+.gm-remove-member:hover:not(:disabled) {
+  background: #fff0f0;
+}
+.gm-remove-member:focus-visible {
+  outline: 2px solid #a13e3e;
+  outline-offset: 2px;
+}
+.gm-remove-member:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 .gm-members-panel > p {
   border-top: 1px solid #edf0e8;

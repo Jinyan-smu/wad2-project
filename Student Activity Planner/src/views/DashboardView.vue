@@ -504,11 +504,10 @@ function weatherDescription(code) {
 async function fetchWeather() {
   weatherError.value = false
   try {
-    const response = await fetch(
+    const { data } = await axios.get(
       'https://api.open-meteo.com/v1/forecast?latitude=1.2963&longitude=103.8502&daily=weather_code,temperature_2m_max,precipitation_probability_max&timezone=Asia%2FSingapore&forecast_days=7',
     )
-    if (!response.ok) throw new Error('Forecast unavailable')
-    const { daily } = await response.json()
+    const { daily } = data
     forecast.value = daily.time.map((date, index) => ({
       date,
       ...weatherDescription(daily.weather_code[index]),

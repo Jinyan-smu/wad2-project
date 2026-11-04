@@ -373,6 +373,65 @@ async function twoMemberGroup() {
   return { owner, teammate, group }
 }
 
+test('an owner can remove a member, persisting cleanup in group views and both planners', async () => {
+  const { owner, teammate, group } = await twoMemberGroup()
+  const otherGroup = await createGroup(teammate)
+  const booking = await request('/group-meetings/meetings', { method: 'POST', cookie: teammate, body: meetingFor(group.id) })
+  assert.equal(booking.status, 201)
+  const otherBooking = await request('/group-meetings/meetings', {
+    method: 'POST', cookie: teammate, body: meetingFor(otherGroup.id, '14:00', '15:00'),
+  })
+  assert.equal(otherBooking.status, 201)
+
+  const removed = await request(`/group-meetings/groups/${group.id}/members/teammate`, {
+    method: 'DELETE', cookie: owner,
+  })
+  assert.equal(removed.status, 200)
+  assert.equal(removed.data.removedMemberId, 'teammate')
+  assert.equal(removed.data.newOwnerId, 'owner')
+  assert.deepEqual(storedState.groups.find(item => item.id === group.id).memberIds, ['owner'])
+  assert.deepEqual(storedState.meetings.find(item => item.id === booking.data.meeting.id).participantIds, ['owner'])
+  assert.ok(!storedState.busyIntervals.some(item => item.userId === 'teammate' && item.sourceMeetingId === booking.data.meeting.id))
+  assert.ok(!storedState.availabilityShares.some(item => item.userId === 'teammate' && item.groupId === group.id))
+
+  const ownerView = await request('/group-meetings', { cookie: owner })
+  assert.equal(ownerView.data.groups[0].memberCount, 1)
+  const teammateView = await request('/group-meetings', { cookie: teammate })
+  assert.deepEqual(teammateView.data.groups.map(item => item.id), [otherGroup.id])
+  const ownerPlanner = await request('/planner-data', { cookie: owner })
+  assert.ok(ownerPlanner.data.activities.some(item => item.meetingId === booking.data.meeting.id))
+  const teammatePlanner = await request('/planner-data', { cookie: teammate })
+  assert.ok(!teammatePlanner.data.activities.some(item => item.meetingId === booking.data.meeting.id))
+  assert.ok(teammatePlanner.data.activities.some(item => item.meetingId === otherBooking.data.meeting.id))
+  const forbiddenSearch = await request('/group-meetings/common-time', {
+    method: 'POST', cookie: teammate, body: searchFor(group.id),
+  })
+  assert.equal(forbiddenSearch.status, 403)
+})
+
+test('member removal requires the signed-in group owner and rejects invalid targets without saving changes', async () => {
+  const { owner, teammate, group } = await twoMemberGroup()
+  const outsider = await login('third')
+  await createGroup(outsider)
+  const before = structuredClone(storedState)
+  const path = `/group-meetings/groups/${group.id}/members/teammate`
+  assert.equal((await request(path, { method: 'DELETE' })).status, 401)
+  for (const cookie of [teammate, outsider]) {
+    const denied = await request(path, { method: 'DELETE', cookie, body: { actorId: 'owner', ownerId: 'owner' } })
+    assert.equal(denied.status, 403)
+    assert.equal(denied.data.code, 'not_group_owner')
+  }
+  const self = await request(`/group-meetings/groups/${group.id}/members/owner`, { method: 'DELETE', cookie: owner })
+  assert.equal(self.status, 409)
+  assert.equal(self.data.code, 'cannot_remove_owner')
+  const missingMember = await request(`/group-meetings/groups/${group.id}/members/third`, { method: 'DELETE', cookie: owner })
+  assert.equal(missingMember.status, 404)
+  assert.equal(missingMember.data.code, 'member_not_found')
+  const missingGroup = await request('/group-meetings/groups/missing/members/teammate', { method: 'DELETE', cookie: owner })
+  assert.equal(missingGroup.status, 404)
+  assert.deepEqual(storedState, before)
+})
+
 test('live member activities and unfinished coursework block matching and booking, and booked meetings reach both planners', async () => {
   const { owner, teammate, group } = await twoMemberGroup()
   const activity = await request('/activities', { method: 'POST', cookie: teammate, body: {

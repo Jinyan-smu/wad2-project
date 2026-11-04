@@ -327,6 +327,110 @@ describe('group overview and leaving', () => {
   })
 })
 
+describe('owner member removal', () => {
+  function addOwnedGroup() {
+    state.groups.push({
+      ...group(),
+      ownerId: 'owner',
+      isOwner: true,
+      members: [
+        { id: 'owner', name: 'Owner', isOwner: true, isViewer: true, scheduleStatus: 'complete' },
+        { id: 'teammate', name: 'Teammate', isOwner: false, isViewer: false, scheduleStatus: 'complete' },
+      ],
+    })
+  }
+
+  it('shows removal only for other members when the viewer owns the group', async () => {
+    addOwnedGroup()
+    await render('/groupwork?group=project')
+    expect(wrapper.findAll('button[aria-label^="Remove "]')).toHaveLength(1)
+    expect(wrapper.get('button[aria-label="Remove Teammate from group"]').text()).toBe('Remove')
+    expect(wrapper.find('button[aria-label="Remove Owner from group"]').exists()).toBe(false)
+  })
+
+  it('does not offer removal to regular members', async () => {
+    addOwnedGroup()
+    state.groups[0].isOwner = false
+    await render('/groupwork?group=project')
+    expect(wrapper.find('button[aria-label^="Remove "]').exists()).toBe(false)
+  })
+
+  it('explains removal and lets the owner cancel without making a request', async () => {
+    addOwnedGroup()
+    await render('/groupwork?group=project')
+    await wrapper.get('button[aria-label="Remove Teammate from group"]').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Remove Teammate?')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('its meetings, and availability matching')
+    await wrapper.findAll('button').find(button => button.text() === 'Keep member').trigger('click')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(axios.delete).not.toHaveBeenCalled()
+    expect(wrapper.get('.gm-members-panel').text()).toContain('Teammate')
+  })
+
+  it('removes the confirmed member and refreshes the people list and availability', async () => {
+    addOwnedGroup()
+    axios.delete.mockImplementation(async () => {
+      state.groups[0].members = state.groups[0].members.filter(member => member.id !== 'teammate')
+      return { data: { removedMemberId: 'teammate' } }
+    })
+    await render('/groupwork?group=project')
+    axios.post.mockClear()
+    await wrapper.get('button[aria-label="Remove Teammate from group"]').trigger('click')
+    await wrapper.get('#gm-confirm-remove-member').trigger('click')
+    await flushPromises()
+    expect(axios.delete).toHaveBeenCalledWith(
+      expect.stringMatching(/\/groups\/project\/members\/teammate$/),
+      { withCredentials: true },
+    )
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.get('.gm-members-panel').text()).not.toContain('Teammate')
+    expect(wrapper.get('.gm-member-count').text()).toBe('1')
+    expect(wrapper.text()).toContain('Teammate was removed from project team and its meetings.')
+    expect(axios.post).toHaveBeenCalledWith(
+      expect.stringMatching(/\/common-time$/),
+      expect.objectContaining({ groupId: 'project' }),
+      { withCredentials: true },
+    )
+  })
+
+  it('keeps the member listed and lets the owner retry after a server rejection', async () => {
+    addOwnedGroup()
+    axios.delete.mockRejectedValue({ response: { data: { message: 'Only the group owner can remove members.' } } })
+    await render('/groupwork?group=project')
+    await wrapper.get('button[aria-label="Remove Teammate from group"]').trigger('click')
+    await wrapper.get('#gm-confirm-remove-member').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="dialog"] [role="alert"]').text()).toBe('Only the group owner can remove members.')
+    expect(wrapper.get('.gm-members-panel').text()).toContain('Teammate')
+    expect(wrapper.get('#gm-confirm-remove-member').element.disabled).toBe(false)
+  })
+
+  it('prevents duplicate requests while removal is in progress', async () => {
+    addOwnedGroup()
+    let finish
+    axios.delete.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    await render('/groupwork?group=project')
+    await wrapper.get('button[aria-label="Remove Teammate from group"]').trigger('click')
+    await wrapper.get('#gm-confirm-remove-member').trigger('click')
+    expect(wrapper.get('#gm-confirm-remove-member').element.disabled).toBe(true)
+    await wrapper.get('#gm-confirm-remove-member').trigger('click')
+    expect(axios.delete).toHaveBeenCalledTimes(1)
+    finish({ data: {} })
+    await flushPromises()
+  })
+
+  it('dismisses confirmation when the selected group changes', async () => {
+    addOwnedGroup()
+    state.groups.push(group('second'))
+    await render('/groupwork?group=project')
+    await wrapper.get('button[aria-label="Remove Teammate from group"]').trigger('click')
+    await wrapper.get('#gm-group').setValue('second')
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(axios.delete).not.toHaveBeenCalled()
+  })
+})
+
 describe('automatic availability and shared calendar booking', () => {
   it('loads the selected team’s availability with a one-hour deadline buffer', async () => {
     state.groups.push(group())

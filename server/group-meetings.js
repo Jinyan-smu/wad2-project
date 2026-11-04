@@ -11,7 +11,7 @@ const { randomInt } = require('node:crypto')
  *   1. Availability matching  -> buildWindow() + evaluateReadiness() + findCommonTimes()
  *   2. Booking a meeting       -> validateBookingDraft() + findBookingConflicts()
  *   3. Invitation state machine -> checkInvitationAllowed() + applyInvitationResponse()
- *   4. Group membership        -> createGroupCode() + joinGroupByCode() + leaveGroup()
+ *   4. Group membership        -> joinGroupByCode() + leaveGroup() + removeGroupMember()
  *
  * Time conventions used everywhere in this module:
  *   - Timestamps are epoch milliseconds internally, ISO 8601 UTC strings at the edges.
@@ -732,6 +732,33 @@ function leaveGroup({ state, groupId, userId, now = Date.now() }) {
   }
 }
 
+/** Owners can remove another member, with the same commitment cleanup as leaving. */
+function removeGroupMember({ state, groupId, actorId, memberId, now = Date.now() }) {
+  const group = state.groups.find(item => item.id === groupId)
+  if (!group) {
+    throw new HttpError(404, 'That group does not exist.', 'group_not_found')
+  }
+  if (group.ownerId !== actorId || !group.memberIds.includes(actorId)) {
+    throw new HttpError(403, 'Only the group owner can remove members.', 'not_group_owner')
+  }
+  if (memberId === group.ownerId) {
+    throw new HttpError(409, 'Use Leave group if you want to leave your own group.', 'cannot_remove_owner')
+  }
+  if (!group.memberIds.includes(memberId)) {
+    throw new HttpError(404, 'That person is no longer a member of this group.', 'member_not_found')
+  }
+
+  const result = leaveGroup({ state, groupId, userId: memberId, now })
+  // A pending invitation must not restore membership after the owner removes it.
+  for (const invitation of state.invitations) {
+    if (invitation.groupId === groupId && invitation.toUserId === memberId && invitation.status === 'pending') {
+      invitation.status = 'cancelled'
+      invitation.respondedAt = new Date(now).toISOString()
+    }
+  }
+  return { ...result, removedMemberId: memberId }
+}
+
 /* ------------------------------------------------------------------ *
  * 3. Invitation state machine
  * ------------------------------------------------------------------ */
@@ -845,6 +872,7 @@ module.exports = {
   ensureGroupCodes,
   joinGroupByCode,
   leaveGroup,
+  removeGroupMember,
   ALLOWED_DURATIONS,
   validateAssignmentBuffer,
   buildAvailabilityGrid,

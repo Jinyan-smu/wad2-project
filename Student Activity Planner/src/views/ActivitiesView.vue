@@ -170,9 +170,8 @@ async function loadForecast(lat, lng) {
 		const url =
 			`${WEATHER_URL}?latitude=${lat}&longitude=${lng}` +
 			'&daily=weather_code,temperature_2m_max,precipitation_probability_max&timezone=auto&forecast_days=16'
-		const response = await fetch(url)
-		if (!response.ok) throw new Error('Forecast request failed')
-		const daily = (await response.json()).daily
+		const { data } = await axios.get(url)
+		const { daily } = data
 
 		const days = {}
 		daily.time.forEach((day, index) => {
@@ -354,9 +353,8 @@ async function searchLocation() {
 
 	try {
 		const url = `${GEOCODE_URL}?format=jsonv2&limit=5&countrycodes=sg&q=${encodeURIComponent(query)}`
-		const response = await fetch(url)
-		if (!response.ok) throw new Error('Search failed')
-		searchResults.value = await response.json()
+		const { data } = await axios.get(url)
+		searchResults.value = data
 		if (!searchResults.value.length) {
 			searchMessage.value = 'No places found. Try another name, pick a preset, or click the map.'
 		}

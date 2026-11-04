@@ -1109,6 +1109,20 @@ app.post('/api/group-meetings/groups/join', requireLogin, async (req, res, next)
   }
 })
 
+app.delete('/api/group-meetings/groups/:id/members/:memberId', requireLogin, async (req, res, next) => {
+  try {
+    const result = await updateGroupStore(state => groupMeetings.removeGroupMember({
+      state,
+      groupId: req.params.id,
+      actorId: req.session.user.id,
+      memberId: req.params.memberId
+    }))
+    res.json(result)
+  } catch (error) {
+    sendGroupError(error, res, next)
+  }
+})
+
 app.post('/api/group-meetings/groups/:id/leave', requireLogin, async (req, res, next) => {
   try {
     const result = await updateGroupStore(state => groupMeetings.leaveGroup({

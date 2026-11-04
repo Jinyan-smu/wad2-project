@@ -59,6 +59,7 @@ const fixtures = () => ({
 })
 let wrapper
 let data
+let weatherData
 async function render() {
   wrapper = mount(Dashboard, {
     attachTo: document.body,
@@ -76,27 +77,25 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-04T09:00:00+08:00'))
   vi.clearAllMocks()
   data = fixtures()
+  weatherData = {
+    daily: {
+      time: ['2026-11-04'],
+      weather_code: [3],
+      temperature_2m_max: [31],
+      precipitation_probability_max: [60],
+    },
+  }
   axios.get.mockImplementation((url) =>
     Promise.resolve({
-      data: url.endsWith('/me') ? { user: { id: 'alex', username: 'Alex' } } : data,
+      data: url.startsWith('https://api.open-meteo.com/')
+        ? weatherData
+        : url.endsWith('/me')
+          ? { user: { id: 'alex', username: 'Alex' } }
+          : data,
     }),
   )
   axios.patch.mockResolvedValue({ data: { done: true } })
   axios.post.mockResolvedValue({ data: { done: true } })
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        daily: {
-          time: ['2026-11-04'],
-          weather_code: [3],
-          temperature_2m_max: [31],
-          precipitation_probability_max: [60],
-        },
-      }),
-    }),
-  )
 })
 afterEach(() => {
   wrapper?.unmount()
@@ -304,17 +303,14 @@ describe('Dashboard planning features', () => {
     ).toBe('false')
     wrapper.unmount()
     data = fixtures()
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        daily: {
-          time: ['2026-11-04'],
-          weather_code: [95],
-          temperature_2m_max: [30],
-          precipitation_probability_max: [5],
-        },
-      }),
-    })
+    weatherData = {
+      daily: {
+        time: ['2026-11-04'],
+        weather_code: [95],
+        temperature_2m_max: [30],
+        precipitation_probability_max: [5],
+      },
+    }
     await render()
     expect(
       wrapper.get('[aria-controls="dashboard-weather-details"]').attributes('aria-expanded'),
