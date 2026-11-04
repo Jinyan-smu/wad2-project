@@ -18,7 +18,6 @@ import LogoutButton from './LogoutButton.vue'
  */
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
 const TIME_ZONE = 'Asia/Singapore'
-const client = axios.create({ baseURL: API_URL, withCredentials: true, timeout: 10000 })
 
 const loading = ref(true)
 const loadError = ref('')
@@ -253,7 +252,8 @@ async function loadGroupState() {
   loading.value = true
   loadError.value = ''
   try {
-    const { data } = await client.get('/group-meetings')
+    const response = await axios.get(`${API_URL}/group-meetings`,{ withCredentials: true })
+    const data = response.data
     state.value = data
 
     if (!draft.fromDate) {
@@ -265,7 +265,7 @@ async function loadGroupState() {
         durationMinutes: String(data.defaults.durationMinutes),
       })
     }
-    if (!booking.date) booking.date = data.defaults.fromDate
+    if (!booking.date) booking.date = data.fromDate
 
     ensureSelection()
   } catch (error) {
@@ -280,7 +280,8 @@ async function loadPlannerData() {
   plannerLoading.value = true
   plannerError.value = ''
   try {
-    const { data } = await client.get('/planner-data')
+    const response = await axios.get(`${API_URL}/planner-data`, { withCredentials: true })
+    const data = response.data
     if (!Array.isArray(data?.activities) || !Array.isArray(data?.assignments)) {
       throw new Error('The planner response is missing expected fields.')
     }
@@ -371,14 +372,15 @@ async function findCommonTime({ quiet = false } = {}) {
 
   matching.value = true
   try {
-    const { data } = await client.post('/group-meetings/common-time', {
+    const response = await axios.post(`${API_URL}/group-meetings/common-time`, {
       groupId: selectedGroupId.value,
       fromDate: draft.fromDate,
       toDate: draft.toDate,
       startTime: draft.startTime,
       endTime: draft.endTime,
       durationMinutes: Number(draft.durationMinutes),
-    })
+    }, { withCredentials: true })
+    const data = response.data
     matchResult.value = data
 
     // Prefill the booking form with the best slot, but never overwrite a time
@@ -438,13 +440,15 @@ function isInsideSharedFreeBlock(startAt, endAt) {
 async function submitBooking({ title, startAt, endAt, force }) {
   bookingBusy.value = true
   try {
-    const { data } = await client.post('/group-meetings/meetings', {
+    const response = await axios.post(`${API_URL}/group-meetings/meetings`, {
       groupId: selectedGroupId.value,
       title,
       startAt,
       endAt,
       force,
-    })
+    }, { withCredentials: true })
+
+    const data = response.data
 
     bookingConfirm.value = null
     bookingNotice.value =
@@ -494,12 +498,13 @@ async function bookMeeting() {
   bookingBusy.value = true
   try {
     // Ask the server who is busy before writing anything.
-    const { data } = await client.post('/group-meetings/meetings/preview', {
+    const response = await axios.post(`${API_URL}/group-meetings/meetings/preview`, {
       groupId: selectedGroupId.value,
       title,
       startAt,
       endAt,
-    })
+    }, { withCredentials: true })
+    const data = response.data
     const conflicts = data.conflicts || []
     const searched = matchResult.value?.status === 'ok'
     const sharedFree = searched && isInsideSharedFreeBlock(startAt, endAt)
@@ -553,7 +558,7 @@ async function cancelMeeting(meeting) {
   actionNotice.value = ''
   busyAction.value = `cancel-meeting:${meeting.id}`
   try {
-    await client.delete(`/group-meetings/meetings/${meeting.id}`)
+    await axios.delete(`${API_URL}/group-meetings/meetings/${meeting.id}`, { withCredentials: true })
     actionNotice.value =
       `"${meeting.title}" is cancelled. That slot is free again and the meeting is off your ` +
       'Dashboard timeline.'
@@ -577,7 +582,7 @@ async function respond(invitation, action) {
   actionNotice.value = ''
   busyAction.value = `${action}:${invitation.id}`
   try {
-    await client.post(`/group-meetings/invitations/${invitation.id}/${action}`)
+    await axios.post(`${API_URL}/group-meetings/invitations/${invitation.id}/${action}`, { withCredentials: true })
     const labels = {
       accept: `You joined ${invitation.groupName}.`,
       decline: `You declined the invitation to ${invitation.groupName}.`,
@@ -609,10 +614,10 @@ async function sendInvitation() {
 
   busyAction.value = 'invite'
   try {
-    await client.post('/group-meetings/invitations', {
+    await axios.post(`${API_URL}/group-meetings/invitations`, {
       groupId: inviteGroupId.value,
       email,
-    })
+    }, { withCredentials: true })
     inviteNotice.value =
       `Invitation sent to ${email} for ${inviteGroup.value?.name || 'the group'}. ` +
       'They become a member only after accepting.'
@@ -636,7 +641,8 @@ async function createGroup() {
 
   busyAction.value = 'create'
   try {
-    const { data } = await client.post('/group-meetings/groups', { name })
+    const response = await axios.post(`${API_URL}/group-meetings/groups`, { name }, { withCredentials: true })
+    const data = response.data
     newGroupName.value = ''
     await loadGroupState()
     selectedGroupId.value = data.group.id
@@ -652,7 +658,8 @@ async function joinDemoGroup() {
   actionError.value = ''
   busyAction.value = 'demo'
   try {
-    const { data } = await client.post('/group-meetings/demo-group/join')
+    const response = await axios.post(`${API_URL}/group-meetings/demo-group/join`, { withCredentials: true })
+    const data = response.data
     await loadGroupState()
     selectedGroupId.value = data.group.id
     actionNotice.value = 'You joined the demo group.'
