@@ -1,6 +1,21 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import GroupAvailabilityGrid from '../components/GroupAvailabilityGrid.vue'
+
+const wrappers = []
+function render(options) {
+  const wrapper = mount(GroupAvailabilityGrid, options)
+  wrappers.push(wrapper)
+  return wrapper
+}
+afterEach(() => {
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+})
+const members = [
+  { id: 'rithik', name: 'Rithik Panneer' },
+  { id: 'huang', name: 'Huang Chujun' },
+  { id: 'yang', name: 'Yang Qizuo' },
+]
 
 function cell(time, overrides = {}) {
   const start = Date.parse(`2026-11-04T${time}:00+08:00`)
@@ -21,7 +36,7 @@ function availability(cells, moreDays = []) {
 describe('GroupAvailabilityGrid', () => {
   it('selects a start with the chosen meeting duration instead of the bucket end', async () => {
     const start = cell('09:00')
-    const wrapper = mount(GroupAvailabilityGrid, {
+    const wrapper = render({
       props: { availability: availability([start]), durationMinutes: 60 },
     })
     const button = wrapper.get('.ag-cell')
@@ -39,8 +54,8 @@ describe('GroupAvailabilityGrid', () => {
     ])
   })
 
-  it('distinguishes busy, partially free and too-short cells and prevents selection', async () => {
-    const wrapper = mount(GroupAvailabilityGrid, {
+  it('colors only by per-slot counts while keeping unavailable meeting starts inspectable', async () => {
+    const wrapper = render({
       props: {
         availability: availability([
           cell('09:00', { freeCount: 0, canBook: false }),
@@ -52,12 +67,19 @@ describe('GroupAvailabilityGrid', () => {
     const buttons = wrapper.findAll('.ag-cell')
     expect(buttons[0].classes()).toContain('ag-cell-busy')
     expect(buttons[1].classes()).toContain('ag-cell-some')
-    expect(buttons[2].classes()).toContain('ag-cell-no-fit')
+    expect(buttons[2].classes()).toContain('ag-cell-everyone')
+    expect(buttons[2].classes()).not.toContain('ag-cell-no-fit')
+    expect(buttons.map((button) => button.get('.ag-cell-count').text())).toEqual([
+      '0/3',
+      '2/3',
+      '3/3',
+    ])
     expect(buttons[2].attributes('aria-label')).toContain(
       'A full 60-minute meeting cannot start here',
     )
     for (const button of buttons) {
-      expect(button.attributes('disabled')).toBeDefined()
+      expect(button.attributes('aria-disabled')).toBe('true')
+      expect(button.attributes('disabled')).toBeUndefined()
       await button.trigger('click')
     }
     expect(wrapper.emitted('select')).toBeUndefined()
@@ -65,7 +87,7 @@ describe('GroupAvailabilityGrid', () => {
 
   it('shows the full selected duration across consecutive buckets', () => {
     const cells = ['09:00', '09:15', '09:30', '09:45', '10:00'].map((time) => cell(time))
-    const wrapper = mount(GroupAvailabilityGrid, {
+    const wrapper = render({
       props: {
         availability: availability(cells),
         selectedStart: cells[0].startAt,
@@ -74,7 +96,7 @@ describe('GroupAvailabilityGrid', () => {
     })
     expect(wrapper.findAll('.ag-cell-selected')).toHaveLength(4)
     expect(wrapper.findAll('[aria-pressed="true"]')).toHaveLength(4)
-    expect(wrapper.get('.ag-selection-start').attributes('title')).toContain(
+    expect(wrapper.get('.ag-selection-start').attributes('aria-label')).toContain(
       'Part of your selected meeting',
     )
     expect(wrapper.get('.ag-selection-end').attributes('aria-label')).toContain('09:45–10:00')
@@ -83,7 +105,7 @@ describe('GroupAvailabilityGrid', () => {
 
   it('aligns different daily hours by wall time and never fills missing buckets as free', () => {
     const second = cell('10:00')
-    const wrapper = mount(GroupAvailabilityGrid, {
+    const wrapper = render({
       props: {
         availability: availability(
           [cell('09:00')],
@@ -111,7 +133,7 @@ describe('GroupAvailabilityGrid', () => {
   })
 
   it('shows a meaningful empty state and a separate loading status', async () => {
-    const wrapper = mount(GroupAvailabilityGrid)
+    const wrapper = render()
     expect(wrapper.text()).toContain('Choose your dates and meeting length')
     expect(wrapper.find('table').exists()).toBe(false)
     await wrapper.setProps({ loading: true })
@@ -123,5 +145,94 @@ describe('GroupAvailabilityGrid', () => {
       availability: { stepMinutes: 15, days: [{ date: '2026-11-04', cells: [] }] },
     })
     expect(wrapper.find('.ag-empty').exists()).toBe(true)
+  })
+
+  it('keeps availability counts and colors unchanged when only the meeting length changes', async () => {
+    const start = cell('09:00')
+    const wrapper = render({ props: { availability: availability([start]), durationMinutes: 30 } })
+    const classes = wrapper.get('.ag-cell').classes()
+    await wrapper.setProps({
+      availability: availability([{ ...start, canBook: false }]),
+      durationMinutes: 90,
+    })
+    expect(wrapper.get('.ag-cell').classes()).toEqual(classes)
+    expect(wrapper.get('.ag-cell-count').text()).toBe('3/3')
+    await wrapper.get('.ag-cell').trigger('click')
+    expect(wrapper.emitted('select')).toBeUndefined()
+    expect(document.querySelector('[role="tooltip"]').textContent).toContain(
+      'A full 90-minute meeting cannot start here',
+    )
+  })
+
+  it('shows exactly who is available and busy on hover, even for an unbookable start', async () => {
+    const wrapper = render({
+      props: {
+        members,
+        availability: availability([
+          cell('09:00', { freeCount: 2, busyMemberIds: ['yang'], canBook: false }),
+        ]),
+      },
+    })
+    const button = wrapper.get('.ag-cell')
+    await button.trigger('mouseenter')
+    await flushPromises()
+    const tooltip = document.querySelector('[role="tooltip"]')
+    expect(tooltip.querySelector('.ag-detail-free').textContent).toContain('Rithik Panneer')
+    expect(tooltip.querySelector('.ag-detail-free').textContent).toContain('Huang Chujun')
+    expect(tooltip.querySelector('.ag-detail-free').textContent).not.toContain('Yang Qizuo')
+    expect(tooltip.querySelector('.ag-detail-busy').textContent).toContain('Yang Qizuo')
+    expect(tooltip.textContent).toContain('09:00–09:15')
+    expect(tooltip.textContent).toContain('2/3 free')
+    expect(button.attributes('aria-describedby')).toBe(tooltip.id)
+    expect(tooltip.style.visibility).toBe('visible')
+  })
+
+  it('supports keyboard inspection, Escape dismissal, and tapping a busy slot without booking', async () => {
+    const wrapper = render({
+      props: {
+        members,
+        availability: availability([
+          cell('09:00', {
+            freeCount: 0,
+            busyMemberIds: members.map((member) => member.id),
+            canBook: false,
+          }),
+        ]),
+      },
+    })
+    const button = wrapper.get('.ag-cell')
+    await button.trigger('focus')
+    expect(document.querySelector('[role="tooltip"] .ag-detail-free').textContent).toContain(
+      'No one is free',
+    )
+    expect(document.querySelectorAll('[role="tooltip"] .ag-detail-busy li')).toHaveLength(3)
+    await button.trigger('keydown', { key: 'Escape' })
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
+    await button.trigger('click')
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull()
+    expect(wrapper.emitted('select')).toBeUndefined()
+  })
+
+  it('handles all-free slots and clears stale names on scroll or refreshed availability', async () => {
+    const wrapper = render({ props: { members, availability: availability([cell('09:00')]) } })
+    await wrapper.get('.ag-cell').trigger('mouseenter')
+    expect(document.querySelectorAll('[role="tooltip"] .ag-detail-free li')).toHaveLength(3)
+    expect(document.querySelector('[role="tooltip"] .ag-detail-busy').textContent).toContain(
+      'No one is busy',
+    )
+    window.dispatchEvent(new Event('scroll'))
+    await flushPromises()
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
+    await wrapper.get('.ag-cell').trigger('focus')
+    await wrapper.setProps({
+      availability: availability([
+        cell('09:00', { freeCount: 2, busyMemberIds: ['yang'], canBook: false }),
+      ]),
+    })
+    expect(document.querySelector('[role="tooltip"]')).toBeNull()
+    await wrapper.get('.ag-cell').trigger('mouseenter')
+    expect(document.querySelector('[role="tooltip"] .ag-detail-busy').textContent).toContain(
+      'Yang Qizuo',
+    )
   })
 })

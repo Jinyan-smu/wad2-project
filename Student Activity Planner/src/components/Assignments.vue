@@ -3,6 +3,7 @@
   import { useRoute } from 'vue-router'
   import axios from 'axios'
   import PlannerNavigation from './PlannerNavigation.vue'
+  import PlannerCompanion from './PlannerCompanion.vue'
   import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
   import { recordCourseworkCompletion } from '../utils/dashboardPersonalization'
   import { getTaskUrgency } from '../utils/taskUrgency'
@@ -424,6 +425,7 @@
 					{{ showForm ? 'Close form' : '+ Add assignment' }}
 				</button>
 			</header>
+			<PlannerCompanion character="coral" message="One thing at a time. You've got this." />
 
 			<div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }}</div>
 			<div v-if="successMessage" class="alert alert-success" role="status">{{ successMessage }}</div>

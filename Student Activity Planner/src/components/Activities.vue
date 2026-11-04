@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import PlannerNavigation from './PlannerNavigation.vue'
+import PlannerCompanion from './PlannerCompanion.vue'
 import GoogleActivityMap from './GoogleActivityMap.vue'
 import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
 import { getTaskUrgency } from '../utils/taskUrgency'
@@ -32,7 +33,7 @@ const presetPlaces = [
 
 const activities = ref([])
 const forecasts = ref({})
-const weatherAlertsOpen = ref(true)
+const weatherAlertsOpen = ref(false)
 const loading = ref(true)
 const loadError = ref('')
 const formError = ref('')
@@ -549,6 +550,7 @@ onMounted(async () => {
 						</button>
 					</div>
 				</header>
+				<PlannerCompanion character="blue" message="Make room for the good stuff." />
 
 				<div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }}</div>
 				<div v-if="successMessage" class="alert alert-success" role="status">{{ successMessage }}</div>

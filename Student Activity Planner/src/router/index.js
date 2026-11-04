@@ -11,7 +11,11 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   scrollBehavior(to, from, savedPosition) {
     if (savedPosition) return savedPosition
-    if (to.hash) return { el: to.hash, top: 20 }
+    if (to.hash) {
+      const mobileNavHeight =
+        document.querySelector('.planner-mobile-bar')?.getBoundingClientRect().height || 0
+      return { el: to.hash, top: mobileNavHeight + 20 }
+    }
     return { top: 0 }
   },
   routes: [

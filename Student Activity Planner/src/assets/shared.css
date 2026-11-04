@@ -14,6 +14,7 @@
   --nav-end: #8b5cf6;
   --nav-text: #eeeaff;
   --nav-gradient: linear-gradient(170deg, var(--nav-start), var(--nav-end));
+  --mobile-nav-height: calc(68px + env(safe-area-inset-top, 0px));
   --radius: 16px;
   --red: #a84150;
   --green: #337354;
@@ -209,19 +210,6 @@ body {
 :is(.planner-sidebar, .planner-mobile-panel) .nav-link:focus-visible {
   outline: 3px solid #ffd78c;
   outline-offset: 3px;
-}
-.sidebar-note {
-  padding: 50px 12px 16px;
-  color: var(--nav-text);
-}
-.sidebar-note p {
-  font-size: 0.79rem;
-  line-height: 1.8;
-  margin: 12px 0 0;
-}
-.sidebar-note strong {
-  color: #fff;
-  font-weight: 500;
 }
 .app :is(.planner-sidebar, .planner-mobile-panel) .logout-button {
   color: #fff;
@@ -599,6 +587,33 @@ body {
 }
 
 /* Layout breakpoints follow Bootstrap's sm / lg / xl tiers. */
+@media (max-width: 991.98px) {
+  html {
+    scroll-padding-top: var(--mobile-nav-height);
+  }
+  /* Reserve the fixed bar's height inside every page's existing content wrapper. */
+  .planner-mobile-nav {
+    height: var(--mobile-nav-height);
+  }
+  .planner-mobile-bar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 1030;
+    height: var(--mobile-nav-height);
+    padding: 12px max(16px, env(safe-area-inset-right, 0px)) 12px
+      max(16px, env(safe-area-inset-left, 0px));
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    border-radius: 0;
+  }
+  .planner-mobile-panel {
+    max-height: calc(100vh - var(--mobile-nav-height) - 24px - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - var(--mobile-nav-height) - 24px - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
 @media (min-width: 576px) {
   .app :is(.main, .dashboard-main) {
     padding: 28px;

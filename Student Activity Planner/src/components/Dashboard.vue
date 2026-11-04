@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import axios from 'axios'
 import PlannerNavigation from './PlannerNavigation.vue'
 import PlannerIcon from './PlannerIcon.vue'
+import PlannerCompanion from './PlannerCompanion.vue'
 import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
 import DashboardTools from './DashboardTools.vue'
 import { createDashboardPersonalization } from '../utils/dashboardPersonalization'
@@ -482,6 +483,7 @@ onUnmounted(() => {
             >
           </div>
         </header>
+        <PlannerCompanion character="purple" message="A little planning. A lot more living." />
         <div
           v-if="plannerError"
           class="alert alert-danger d-flex flex-wrap gap-2 align-items-center justify-content-between"

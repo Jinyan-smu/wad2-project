@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import PlannerNavigation from './PlannerNavigation.vue'
 import PlannerIcon from './PlannerIcon.vue'
+import PlannerCompanion from './PlannerCompanion.vue'
 import GroupAvailabilityGrid from './GroupAvailabilityGrid.vue'
 
 // Availability is calculated on the server from all members' saved schedules.
@@ -771,6 +772,7 @@ onBeforeUnmount(() => {
             }}</small>
           </div>
         </header>
+        <PlannerCompanion character="mint" message="Good plans are better together." />
 
         <div v-if="actionNotice" class="gm-message gm-success" role="status">
           {{ actionNotice }}
@@ -1057,6 +1059,7 @@ onBeforeUnmount(() => {
                     </div>
                     <GroupAvailabilityGrid
                       :availability="matchResult?.availability || null"
+                      :members="matchResult?.members || members"
                       :loading="matching"
                       :selected-start="selectedSlot?.startAt || ''"
                       :duration-minutes="Number(draft.durationMinutes)"
@@ -1238,6 +1241,20 @@ onBeforeUnmount(() => {
                   <small class="gm-booking-footnote"
                     >We’ll check everyone’s schedule once more before saving.</small
                   >
+                  <div class="gm-room-option">
+                    <h3>Need a room?</h3>
+                    <p>Find and book a project meeting room through SMU.</p>
+                    <a
+                      class="gm-button gm-secondary"
+                      href="https://fbs.intranet.smu.edu.sg/home"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Book a meeting room on SMU’s booking site (opens in a new tab)"
+                    >
+                      Book a meeting room <span aria-hidden="true">↗</span>
+                    </a>
+                    <small>Opens SMU’s booking site in a new tab.</small>
+                  </div>
                 </section>
                 <section class="gm-panel gm-members-panel" aria-labelledby="gm-members-title">
                   <div class="gm-section-heading">
@@ -2448,6 +2465,33 @@ onBeforeUnmount(() => {
 .gm-booked-notice a {
   color: #3b6c50;
   font-size: 0.68rem;
+}
+.gm-room-option {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #dfd4eb;
+}
+.gm-room-option h3 {
+  margin: 0 0 6px;
+  color: #705a85;
+  font-size: 0.85rem;
+}
+.gm-room-option p {
+  margin: 0 0 12px;
+  color: #8a7b96;
+  font-size: 0.7rem;
+  line-height: 1.7;
+}
+.gm-room-option a {
+  width: 100%;
+  justify-content: space-between;
+  color: #7153ad;
+}
+.gm-room-option small {
+  display: block;
+  margin-top: 8px;
+  color: #8a7b96;
+  font-size: 0.62rem;
 }
 .gm-members-panel {
   padding: 22px;

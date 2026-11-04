@@ -1,13 +1,19 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue'
 
 const props = defineProps({
   availability: { type: Object, default: null },
   selectedStart: { type: String, default: '' },
   durationMinutes: { type: Number, default: 60 },
   loading: { type: Boolean, default: false },
+  members: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['select'])
+const detailId = useId()
+const activeSlot = shallowRef(null)
+const detailElement = ref(null)
+const detailPosition = ref({ left: '12px', top: '12px', visibility: 'hidden' })
+let hideTimer
 const timeZone = 'Asia/Singapore'
 const timeFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone,
@@ -51,6 +57,86 @@ const selectedLabel = computed(() => {
   return `${dayFormat.format(new Date(selectedStamp.value))} · ${time(selectedStamp.value)}–${time(selectedEnd.value)}`
 })
 const stepMinutes = computed(() => props.availability?.stepMinutes || 15)
+const slotMembers = computed(() => {
+  if (!activeSlot.value) return { available: [], busy: [], known: false }
+  const cell = activeSlot.value.cell
+  const busyIds = new Set(cell.busyMemberIds || [])
+  const available = props.members.filter((member) => !busyIds.has(member.id))
+  const busy = props.members.filter((member) => busyIds.has(member.id))
+  return {
+    available,
+    busy,
+    known: props.members.length === cell.totalCount && available.length === cell.freeCount,
+  }
+})
+
+function isActive(cell) {
+  return activeSlot.value?.cell.startAt === cell.startAt
+}
+function hideDetails() {
+  clearTimeout(hideTimer)
+  activeSlot.value = null
+}
+function keepDetails() {
+  clearTimeout(hideTimer)
+}
+function scheduleHide() {
+  clearTimeout(hideTimer)
+  hideTimer = setTimeout(hideDetails, 150)
+}
+async function showDetails(day, cell, event) {
+  if (props.loading) return
+  keepDetails()
+  const anchor = event.currentTarget.getBoundingClientRect()
+  const slot = { day, cell }
+  activeSlot.value = slot
+  detailPosition.value = { left: '12px', top: '12px', visibility: 'hidden' }
+  await nextTick()
+  if (activeSlot.value !== slot || !detailElement.value) return
+  const { width, height } = detailElement.value.getBoundingClientRect()
+  const padding = 12,
+    gap = 8
+  const rightFits = anchor.right + gap + width <= window.innerWidth - padding
+  const leftFits = anchor.left - width - gap >= padding
+  let left = rightFits ? anchor.right + gap : anchor.left - width - gap
+  let top = Math.max(padding, Math.min(anchor.top, window.innerHeight - height - padding))
+  let maxHeight
+  if (!rightFits && !leftFits) {
+    // On narrow screens, keep the detail card above or below its cell so a tap
+    // can still select a bookable start without the card intercepting it.
+    left = anchor.left
+    const below = window.innerHeight - anchor.bottom - gap - padding
+    const above = anchor.top - gap - padding
+    const useBelow = below >= height || below >= above
+    const room = Math.max(80, useBelow ? below : above)
+    maxHeight = `${room}px`
+    top = useBelow ? anchor.bottom + gap : anchor.top - Math.min(height, room) - gap
+  }
+  left = Math.max(padding, Math.min(left, window.innerWidth - width - padding))
+  detailPosition.value = {
+    left: `${left}px`,
+    top: `${Math.max(padding, top)}px`,
+    maxHeight,
+    visibility: 'visible',
+  }
+}
+function inspectAndSelect(day, cell, event) {
+  showDetails(day, cell, event)
+  select(day, cell)
+}
+function onPageScroll(event) {
+  if (!(event.target instanceof Node && detailElement.value?.contains(event.target))) hideDetails()
+}
+watch(() => [props.availability, props.members, props.loading, props.durationMinutes], hideDetails)
+onMounted(() => {
+  window.addEventListener('scroll', onPageScroll, true)
+  window.addEventListener('resize', hideDetails)
+})
+onBeforeUnmount(() => {
+  hideDetails()
+  window.removeEventListener('scroll', onPageScroll, true)
+  window.removeEventListener('resize', hideDetails)
+})
 
 function isSelected(cell) {
   const start = Date.parse(cell.startAt)
@@ -69,8 +155,8 @@ function cellLabel(day, cell) {
   if (isSelected(cell)) return `${base} Part of your selected meeting.`
   if (cell.canBook) return `${base} Select to start a ${props.durationMinutes}-minute meeting.`
   if (cellState(cell) === 'everyone')
-    return `${base} A full ${props.durationMinutes}-minute meeting cannot start here.`
-  return `${base} Unavailable for the whole team.`
+    return `${base} A full ${props.durationMinutes}-minute meeting cannot start here. Inspect for member availability.`
+  return `${base} Inspect to see who is free and busy.`
 }
 function select(day, cell) {
   if (!cell.canBook || props.loading) return
@@ -87,8 +173,8 @@ function select(day, cell) {
     <div class="ag-key">
       <div class="ag-legend" aria-label="Availability legend">
         <span><i class="ag-dot ag-dot-everyone" aria-hidden="true"></i>Everyone free</span>
-        <span><i class="ag-dot ag-dot-some" aria-hidden="true"></i>Some busy</span>
-        <span><i class="ag-dot ag-dot-busy" aria-hidden="true"></i>All busy</span>
+        <span><i class="ag-dot ag-dot-some" aria-hidden="true"></i>Some free</span>
+        <span><i class="ag-dot ag-dot-busy" aria-hidden="true"></i>Nobody free</span>
       </div>
       <span class="ag-zone">Singapore time <span aria-hidden="true">·</span> UTC+8</span>
     </div>
@@ -154,9 +240,7 @@ function select(day, cell) {
                   :class="[
                     `ag-cell-${cellState(day.byTime.get(row))}`,
                     {
-                      'ag-cell-no-fit':
-                        cellState(day.byTime.get(row)) === 'everyone' &&
-                        !day.byTime.get(row).canBook,
+                      'ag-cell-inspected': isActive(day.byTime.get(row)),
                       'ag-cell-selected': isSelected(day.byTime.get(row)),
                       'ag-selection-start':
                         isSelected(day.byTime.get(row)) &&
@@ -166,11 +250,16 @@ function select(day, cell) {
                         Date.parse(day.byTime.get(row).endAt) >= selectedEnd,
                     },
                   ]"
-                  :disabled="!day.byTime.get(row).canBook"
+                  :aria-disabled="!day.byTime.get(row).canBook"
                   :aria-pressed="isSelected(day.byTime.get(row))"
                   :aria-label="cellLabel(day, day.byTime.get(row))"
-                  :title="cellLabel(day, day.byTime.get(row))"
-                  @click="select(day, day.byTime.get(row))"
+                  :aria-describedby="isActive(day.byTime.get(row)) ? detailId : undefined"
+                  @mouseenter="showDetails(day, day.byTime.get(row), $event)"
+                  @mouseleave="scheduleHide"
+                  @focus="showDetails(day, day.byTime.get(row), $event)"
+                  @blur="scheduleHide"
+                  @keydown.esc.stop.prevent="hideDetails"
+                  @click="inspectAndSelect(day, day.byTime.get(row), $event)"
                 >
                   <span class="ag-cell-count" aria-hidden="true"
                     >{{ day.byTime.get(row).freeCount }}/{{ day.byTime.get(row).totalCount }}</span
@@ -194,17 +283,65 @@ function select(day, cell) {
       </div>
       <div class="ag-footer">
         <p>
-          <span class="ag-tip-dot" aria-hidden="true"></span>Pick a green start time. Each block is
-          {{ stepMinutes }} minutes.
+          <span class="ag-tip-dot" aria-hidden="true"></span>Counts and colors show each
+          {{ stepMinutes }}-minute slot. Hover, focus or tap for names.
         </p>
         <span v-if="selectedLabel" class="ag-selected-label" role="status"
           >Selected <span aria-hidden="true">·</span> {{ selectedLabel }}</span
         >
         <span v-else class="ag-fit-help"
-          >Striped blocks are too short, outside the meeting window, or already past.</span
+          >Booking needs {{ durationMinutes }} continuous free minutes for everyone.</span
         >
       </div>
     </template>
+
+    <Teleport to="body">
+      <div
+        v-if="activeSlot"
+        :id="detailId"
+        ref="detailElement"
+        class="ag-slot-detail"
+        role="tooltip"
+        :style="detailPosition"
+        @mouseenter="keepDetails"
+        @mouseleave="scheduleHide"
+      >
+        <p class="ag-detail-date">{{ activeSlot.day.fullLabel }} · SGT</p>
+        <h3>{{ time(activeSlot.cell.startAt) }}–{{ time(activeSlot.cell.endAt) }}</h3>
+        <p class="ag-detail-summary">
+          <strong>{{ activeSlot.cell.freeCount }}/{{ activeSlot.cell.totalCount }} free</strong> in
+          this slot
+        </p>
+        <div v-if="slotMembers.known" class="ag-detail-people">
+          <section class="ag-detail-free">
+            <h4>
+              Available <span>{{ slotMembers.available.length }}</span>
+            </h4>
+            <ul v-if="slotMembers.available.length">
+              <li v-for="member in slotMembers.available" :key="member.id">{{ member.name }}</li>
+            </ul>
+            <p v-else>No one is free.</p>
+          </section>
+          <section class="ag-detail-busy">
+            <h4>
+              Unavailable <span>{{ slotMembers.busy.length }}</span>
+            </h4>
+            <ul v-if="slotMembers.busy.length">
+              <li v-for="member in slotMembers.busy" :key="member.id">{{ member.name }}</li>
+            </ul>
+            <p v-else>No one is busy.</p>
+          </section>
+        </div>
+        <p v-else class="ag-detail-unknown">Member names aren't available for this slot.</p>
+        <p class="ag-detail-booking">
+          {{
+            activeSlot.cell.canBook
+              ? `You can start a ${durationMinutes}-minute meeting here.`
+              : `A full ${durationMinutes}-minute meeting cannot start here.`
+          }}
+        </p>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -326,7 +463,7 @@ function select(day, cell) {
   left: 0;
   z-index: 1;
   width: 64px;
-  height: 21px;
+  height: 25px;
   background: #fbfaff;
   text-align: center;
   font-size: 0.61rem;
@@ -336,7 +473,7 @@ function select(day, cell) {
 }
 .ag-bucket {
   padding: 1px 4px;
-  height: 21px;
+  height: 25px;
 }
 .ag-hour-row .ag-bucket,
 .ag-hour-row .ag-time-label {
@@ -346,12 +483,12 @@ function select(day, cell) {
   display: block;
   position: relative;
   width: 100%;
-  height: 18px;
-  min-height: 18px;
+  height: 22px;
+  min-height: 22px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 3px;
-  line-height: 16px;
+  line-height: 20px;
   font: inherit;
   transition:
     background 0.13s ease,
@@ -363,7 +500,7 @@ function select(day, cell) {
   cursor: pointer;
   color: #164c3a;
 }
-.ag-cell-everyone:not(:disabled):hover {
+.ag-cell-everyone[aria-disabled='false']:hover {
   background: #369e79;
   border-color: #288763;
   box-shadow: 0 0 0 2px #d6eee4;
@@ -377,21 +514,20 @@ function select(day, cell) {
 .ag-cell-some {
   background: #d3ece3;
   border-color: #c6e3d8;
-  color: #507d6e;
+  color: #365f50;
 }
 .ag-cell-busy {
   background: #f0e5e0;
   border-color: #e9dcd6;
-  color: #a38e82;
+  color: #805f4e;
 }
-.ag-cell-no-fit {
-  background: repeating-linear-gradient(135deg, #d6ece3 0, #d6ece3 4px, #c8e4d8 4px, #c8e4d8 6px);
-  border-color: #c4dfd2;
-  color: #688e7d;
+.ag-cell[aria-disabled='true'] {
+  cursor: help;
 }
-.ag-cell:disabled {
-  cursor: default;
-  opacity: 1;
+.ag-cell-inspected {
+  outline: 2px solid #9279bd;
+  outline-offset: 1px;
+  z-index: 2;
 }
 .ag-cell-missing {
   background: #f7f5f9;
@@ -399,15 +535,11 @@ function select(day, cell) {
 }
 .ag-cell-count {
   display: block;
-  opacity: 0;
-  font-size: 0.57rem;
+  font-size: 0.65rem;
+  font-weight: 600;
   text-align: center;
-  line-height: 16px;
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
-}
-.ag-cell:hover .ag-cell-count,
-.ag-cell:focus-visible .ag-cell-count {
-  opacity: 1;
 }
 .ag-cell-selected {
   background: #7961bd;
@@ -416,7 +548,7 @@ function select(day, cell) {
   color: #fff;
   box-shadow: 0 1px 0 1px #7961bd;
 }
-.ag-cell-selected:not(:disabled):hover {
+.ag-cell-selected[aria-disabled='false']:hover {
   background: #6b50af;
   border-color: #6b50af;
 }
@@ -433,15 +565,95 @@ function select(day, cell) {
 .ag-selected-check {
   position: absolute;
   top: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 5px;
   color: #fff;
   font-size: 0.7rem;
-  line-height: 16px;
+  line-height: 20px;
 }
-.ag-selection-start:hover .ag-cell-count,
-.ag-selection-start:focus-visible .ag-cell-count {
-  opacity: 0;
+.ag-slot-detail {
+  position: fixed;
+  z-index: 1080;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  max-height: min(440px, calc(100dvh - 24px));
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 18px;
+  border: 1px solid #ded6eb;
+  border-radius: 16px;
+  background: #fff;
+  color: #393145;
+  box-shadow: 0 14px 44px #2e23432b;
+}
+.ag-detail-date {
+  margin: 0 0 6px;
+  color: #8a7b9c;
+  font-size: 0.65rem;
+}
+.ag-slot-detail h3 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+.ag-detail-summary {
+  margin: 0 0 15px;
+  color: #7b7186;
+  font-size: 0.72rem;
+}
+.ag-detail-summary strong {
+  color: #37755a;
+}
+.ag-detail-people {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.ag-detail-people h4 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 9px;
+  font-size: 0.67rem;
+  font-weight: 650;
+}
+.ag-detail-people h4 span {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f2f2f4;
+  color: #7c7385;
+  font-size: 0.6rem;
+}
+.ag-detail-free h4 {
+  color: #37755a;
+}
+.ag-detail-busy h4 {
+  color: #966752;
+}
+.ag-detail-people ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ag-detail-people li {
+  margin-bottom: 7px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ag-detail-people p,
+.ag-detail-unknown {
+  color: #958a9f;
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+.ag-detail-booking {
+  border-top: 1px solid #eee9f3;
+  padding-top: 12px;
+  margin: 12px 0 0;
+  font-size: 0.67rem;
+  line-height: 1.6;
+  color: #8a7c99;
 }
 .ag-footer {
   display: flex;

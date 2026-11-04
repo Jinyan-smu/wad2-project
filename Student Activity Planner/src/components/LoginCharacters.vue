@@ -5,9 +5,16 @@ const props = defineProps({
   mood: { type: String, default: 'idle' },
   gaze: { type: Object, default: () => ({ x: 0, y: 0 }) },
   animate: { type: Boolean, default: true },
+  character: {
+    type: String,
+    default: 'all',
+    validator: (value) => ['all', 'coral', 'mint', 'blue', 'purple'].includes(value),
+  },
 })
 
-const characters = ['coral', 'mint', 'blue', 'purple']
+const characters = computed(() =>
+  props.character === 'all' ? ['coral', 'mint', 'blue', 'purple'] : [props.character],
+)
 const sceneStyle = computed(() => {
   const clamp = (value) => Math.max(-1, Math.min(1, Number(value) || 0))
   const x = clamp(props.gaze.x)
@@ -23,6 +30,7 @@ const sceneStyle = computed(() => {
 <template>
   <div
     class="login-characters"
+    :class="{ 'login-characters--single': character !== 'all' }"
     :data-mood="mood"
     :data-animate="animate"
     :style="sceneStyle"
@@ -391,6 +399,62 @@ const sceneStyle = computed(() => {
   .pal--purple .pal-mouth {
     top: 56px;
   }
+}
+.login-characters--single {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: 90px;
+  max-width: none;
+  height: 106px;
+  overflow: hidden;
+  transform: none;
+}
+.login-characters--single .pal {
+  left: 50%;
+  transform: translateX(-50%) rotate(var(--lean));
+}
+.login-characters--single .pal--coral {
+  top: 18px;
+  width: 82px;
+  height: 52px;
+}
+.login-characters--single .pal--coral .pal-leg {
+  height: 40px;
+}
+.login-characters--single .pal--mint {
+  top: 15px;
+  width: 68px;
+  height: 88px;
+}
+.login-characters--single .pal--blue {
+  top: 22px;
+  width: 64px;
+  height: 74px;
+}
+.login-characters--single .pal--purple {
+  top: 0;
+  width: 64px;
+  height: 125px;
+}
+.login-characters--single .pal--purple .pal-face {
+  top: 20px;
+}
+.login-characters--single .character-spark--left {
+  top: 3px;
+  left: 1px;
+  font-size: 13px;
+}
+.login-characters--single .character-spark--right {
+  top: 6px;
+  right: 1px;
+  font-size: 15px;
+}
+.login-characters--single[data-mood='excited'] .pal {
+  transform: translateX(-50%) translateY(-5px) rotate(-4deg);
+}
+.login-characters--single[data-mood='excited'] .pal--purple {
+  transform: translateX(-50%) translateY(-3px) rotate(4deg);
 }
 .login-characters[data-animate='false'] *,
 .login-characters[data-animate='false'] *::before,

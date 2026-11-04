@@ -43,42 +43,37 @@ function closeMenu() {
       >
       <slot name="extra" />
     </nav>
-    <div class="sidebar-note mt-auto">
-      <PlannerIcon name="sparkles" />
-      <p>A little structure.<br /><strong>More room for life.</strong></p>
-    </div>
     <LogoutButton />
   </aside>
-  <div
-    v-else
-    class="planner-mobile-bar d-flex d-lg-none align-items-center justify-content-between gap-2 mb-4"
-  >
-    <RouterLink class="planner-brand" to="/dashboard"
-      ><span class="brand-mark"><PlannerIcon name="book" /></span
-      ><span>Student Planner</span></RouterLink
-    >
-    <details ref="menu" class="planner-mobile-menu">
-      <summary class="btn btn-light d-flex align-items-center gap-2">
-        <PlannerIcon name="menu" /><span>Menu</span>
-      </summary>
-      <nav class="planner-mobile-panel nav flex-column gap-1 p-2" aria-label="Mobile navigation">
-        <RouterLink
-          v-for="link in links"
-          :key="link.to"
-          :to="link.to"
-          class="nav-link"
-          :class="{ active: active === link.to }"
-          :aria-current="active === link.to ? 'page' : undefined"
-          @click="closeMenu"
-        >
-          <PlannerIcon :name="link.icon" />{{ link.label }}
-        </RouterLink>
-        <RouterLink class="nav-link" to="/dashboard#dashboard-weather" @click="closeMenu"
-          ><PlannerIcon name="cloud" />Weather outlook</RouterLink
-        >
-        <slot name="extra" />
-        <LogoutButton />
-      </nav>
-    </details>
+  <div v-else class="planner-mobile-nav d-lg-none">
+    <div class="planner-mobile-bar d-flex align-items-center justify-content-between gap-2">
+      <RouterLink class="planner-brand" to="/dashboard"
+        ><span class="brand-mark"><PlannerIcon name="book" /></span
+        ><span>Student Planner</span></RouterLink
+      >
+      <details ref="menu" class="planner-mobile-menu">
+        <summary class="btn btn-light d-flex align-items-center gap-2">
+          <PlannerIcon name="menu" /><span>Menu</span>
+        </summary>
+        <nav class="planner-mobile-panel nav flex-column gap-1 p-2" aria-label="Mobile navigation">
+          <RouterLink
+            v-for="link in links"
+            :key="link.to"
+            :to="link.to"
+            class="nav-link"
+            :class="{ active: active === link.to }"
+            :aria-current="active === link.to ? 'page' : undefined"
+            @click="closeMenu"
+          >
+            <PlannerIcon :name="link.icon" />{{ link.label }}
+          </RouterLink>
+          <RouterLink class="nav-link" to="/dashboard#dashboard-weather" @click="closeMenu"
+            ><PlannerIcon name="cloud" />Weather outlook</RouterLink
+          >
+          <slot name="extra" />
+          <LogoutButton />
+        </nav>
+      </details>
+    </div>
   </div>
 </template>
