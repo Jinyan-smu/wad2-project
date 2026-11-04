@@ -70,7 +70,9 @@ async function render() {
 
 beforeEach(() => {
   localStorage.clear()
-  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  vi.useFakeTimers({
+    toFake: ['Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'],
+  })
   vi.setSystemTime(new Date('2026-11-04T09:00:00+08:00'))
   vi.clearAllMocks()
   data = fixtures()
@@ -127,8 +129,8 @@ describe('Dashboard', () => {
     expect(wrapper.get('[aria-label="Assignments completed"]').attributes('aria-valuenow')).toBe(
       '67',
     )
-    await wrapper.get('.priority-edit').trigger('click')
-    expect(wrapper.find('#priority-choice option[value="assignment:2:1"]').exists()).toBe(true)
+    expect(wrapper.get('.weekly-coursework-panel').text()).toContain('Another course task')
+    expect(wrapper.get('.weekly-coursework-panel').text()).not.toContain('Project proposal')
   })
 
   it('selects a day, includes activities spanning midnight, and retains activity filtering', async () => {
@@ -236,24 +238,40 @@ describe('Dashboard planning features', () => {
     expect(wrapper.find('.workload-caption').exists()).toBe(false)
   })
 
-  it('pins a chosen task, remembers it after reload, and clears a completed priority', async () => {
+  it('shows coursework for the selected week regardless of the selected day or agenda filter', async () => {
+    data.assignments.push(assignment(99, 'Next week report', '2026-11-10T17:00:00+08:00'))
+    data.quizzes.push({
+      Id: 4,
+      CourseId: 1,
+      CourseName: 'Database Management',
+      Name: 'Next week quiz',
+      EventDate: '2026-11-11T10:00:00+08:00',
+      Done: false,
+    })
     await render()
-    await wrapper.get('.priority-edit').trigger('click')
-    await wrapper.get('#priority-choice').setValue('assignment:2:1')
+    const weekly = () => wrapper.get('.weekly-coursework-panel')
+    expect(weekly().text()).toContain('Project proposal')
+    expect(weekly().text()).toContain('Another course task')
+    expect(weekly().text()).toContain('SQL quiz')
+    expect(weekly().text()).not.toContain('Completed lab')
+    expect(weekly().text()).not.toContain('Next week report')
+    await wrapper.get('[data-date="2026-11-06"]').trigger('click')
+    await wrapper
+      .findAll('.agenda-filters button')
+      .find((button) => button.text() === 'Activities')
+      .trigger('click')
+    expect(weekly().text()).toContain('Project proposal')
+    expect(weekly().text()).toContain('SQL quiz')
+    await wrapper.get('[aria-label="Next week"]').trigger('click')
+    expect(weekly().text()).toContain('Next week report')
+    expect(weekly().text()).toContain('Next week quiz')
+    expect(weekly().text()).not.toContain('Project proposal')
+    expect(weekly().text()).not.toContain('SQL quiz')
     await wrapper
       .findAll('button')
-      .find((button) => button.text() === 'Pin priority')
+      .find((button) => button.text() === 'Today')
       .trigger('click')
-    expect(wrapper.get('.priority-list').text()).toContain('Another course task')
-    wrapper.unmount()
-    await render()
-    expect(wrapper.get('.priority-list').text()).toContain('Another course task')
-    await wrapper
-      .get('.priority-list input[aria-label="Mark Another course task as complete"]')
-      .setValue(true)
-    await flushPromises()
-    expect(wrapper.find('.priority-list').exists()).toBe(false)
-    expect(wrapper.get('.weekly-wins').text()).toContain('1')
+    expect(weekly().text()).toContain('Project proposal')
   })
 
   it('restores saved filters, notices, and a manual weather display choice', async () => {
@@ -349,11 +367,15 @@ describe('Streamlined dashboard structure', () => {
     expect(wrapper.get('.agenda-panel').isVisible()).toBe(true)
     expect(wrapper.find('#focus-tab').exists()).toBe(false)
     expect(wrapper.find('[role="timer"]').exists()).toBe(false)
-    expect(wrapper.get('.priority-list').text()).toContain('Project proposal')
-    expect(wrapper.get('.priority-list').text()).not.toContain('Write the research question')
+    expect(wrapper.get('.weekly-coursework-panel').text()).toContain('Project proposal')
+    expect(wrapper.get('.weekly-coursework-panel').text()).toContain('Another course task')
+    expect(wrapper.get('.weekly-coursework-panel').text()).toContain('SQL quiz')
+    expect(wrapper.get('.weekly-coursework-panel').text()).not.toContain(
+      'Write the research question',
+    )
     expect(wrapper.get('.weekly-wins').text()).not.toContain('focus')
     await wrapper
-      .get('.priority-list input[aria-label="Mark Project proposal as complete"]')
+      .get('.weekly-coursework-panel input[aria-label="Mark Project proposal as complete"]')
       .setValue(true)
     await flushPromises()
     expect(axios.patch).toHaveBeenCalledWith(
@@ -371,7 +393,7 @@ describe('Streamlined dashboard structure', () => {
   it('shows the agenda first and keeps secondary tools closed until requested', async () => {
     await render()
     expect(wrapper.findAll('.summary-stat')).toHaveLength(0)
-    expect(wrapper.findAll('.assignment-row')).toHaveLength(0)
+    expect(wrapper.find('.priorities-panel').exists()).toBe(false)
     expect(wrapper.find('.radar-panel').exists()).toBe(false)
     expect(wrapper.find('#priority-choice').exists()).toBe(false)
     expect(wrapper.find('#focus-task').exists()).toBe(false)
@@ -383,7 +405,7 @@ describe('Streamlined dashboard structure', () => {
     expect(wrapper.get('#dashboard-conflict-details').isVisible()).toBe(false)
     expect(wrapper.find('#dashboard-course-announcements').exists()).toBe(false)
     const main = wrapper.html()
-    expect(main.indexOf('agenda-panel')).toBeLessThan(main.indexOf('priorities-panel'))
+    expect(main.indexOf('agenda-panel')).toBeLessThan(main.indexOf('weekly-coursework-panel'))
     await wrapper.get('#progress-toggle').trigger('click')
     expect(wrapper.get('#dashboard-progress-details').isVisible()).toBe(true)
     wrapper.unmount()
@@ -401,5 +423,240 @@ describe('Streamlined dashboard structure', () => {
     expect(wrapper.get('#conflict-toggle').attributes('aria-expanded')).toBe('true')
     expect(wrapper.get('#dashboard-conflict-details').isVisible()).toBe(true)
     expect(wrapper.get('.conflict-action').isVisible()).toBe(true)
+  })
+})
+
+describe('Dashboard interaction feedback', () => {
+  it('celebrates only a successful save and undoes completion and its recorded history', async () => {
+    let resolveSave
+    axios.patch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    await render()
+    expect(wrapper.get('.planner-companion').text()).toContain('1 coursework item left today')
+    await wrapper
+      .get('.agenda-panel input[aria-label="Mark Project proposal as complete"]')
+      .setValue(true)
+    expect(wrapper.find('.completion-feedback').exists()).toBe(false)
+    expect(wrapper.find('.just-completed').exists()).toBe(false)
+    expect(wrapper.get('.planner-companion .login-characters').attributes('data-mood')).toBe('idle')
+    resolveSave({ data: { done: true } })
+    await flushPromises()
+    expect(wrapper.get('.completion-feedback').text()).toContain('Project proposal completed.')
+    expect(wrapper.get('.just-completed').text()).toContain('Project proposal')
+    expect(wrapper.get('.planner-companion').text()).toContain('One less thing on your mind')
+    expect(wrapper.get('.planner-companion .login-characters').attributes('data-mood')).toBe(
+      'success',
+    )
+    expect(
+      JSON.parse(localStorage.getItem(dashboardStorageKey('alex'))).completions['assignment:1:1'],
+    ).toBeTruthy()
+    wrapper.get('.completion-undo').element.focus()
+    await wrapper.get('.completion-undo').trigger('click')
+    await flushPromises()
+    expect(axios.patch).toHaveBeenLastCalledWith(
+      'http://localhost:8000/api/coursework/assignment/1/1',
+      { done: false },
+      { withCredentials: true },
+    )
+    expect(wrapper.find('.completion-feedback').exists()).toBe(false)
+    expect(
+      wrapper.get('.agenda-panel input[aria-label="Mark Project proposal as complete"]').element
+        .checked,
+    ).toBe(false)
+    expect(document.activeElement).toBe(
+      wrapper.get('.agenda-panel input[aria-label="Mark Project proposal as complete"]').element,
+    )
+    expect(wrapper.get('[aria-label="Assignments completed"]').attributes('aria-valuenow')).toBe(
+      '33',
+    )
+    expect(JSON.parse(localStorage.getItem(dashboardStorageKey('alex'))).completions).toEqual({})
+    expect(wrapper.get('.planner-companion').text()).toContain('1 coursework item left today')
+  })
+
+  it('does not celebrate a failed save and keeps a failed undo available for retry', async () => {
+    axios.patch.mockRejectedValueOnce(new Error('Offline'))
+    await render()
+    const proposal = () =>
+      wrapper.get('.agenda-panel input[aria-label="Mark Project proposal as complete"]')
+    await proposal().setValue(true)
+    await flushPromises()
+    expect(wrapper.find('.completion-feedback').exists()).toBe(false)
+    expect(wrapper.find('.just-completed').exists()).toBe(false)
+    expect(wrapper.get('.planner-companion').text()).not.toContain('One less thing')
+    await proposal().setValue(true)
+    await flushPromises()
+    axios.patch.mockRejectedValueOnce(new Error('Offline'))
+    await wrapper.get('.completion-undo').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.completion-feedback').text()).toContain('Couldn’t undo')
+    expect(
+      wrapper.get('.agenda-panel input[aria-label="Mark Project proposal as incomplete"]').element
+        .checked,
+    ).toBe(true)
+    await wrapper.get('.completion-undo').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.completion-feedback').exists()).toBe(false)
+    expect(proposal().element.checked).toBe(false)
+  })
+
+  it('saves completion from weekly coursework and restores its list and history on Undo', async () => {
+    await render()
+    const task = () =>
+      wrapper.find('.weekly-coursework-panel input[aria-label="Mark Project proposal as complete"]')
+    expect(task().exists()).toBe(true)
+    await task().setValue(true)
+    await flushPromises()
+    expect(axios.patch).toHaveBeenLastCalledWith(
+      'http://localhost:8000/api/coursework/assignment/1/1',
+      { done: true },
+      { withCredentials: true },
+    )
+    expect(task().exists()).toBe(false)
+    expect(
+      wrapper.get('.agenda-panel input[aria-label="Mark Project proposal as incomplete"]').element
+        .checked,
+    ).toBe(true)
+    expect(
+      JSON.parse(localStorage.getItem(dashboardStorageKey('alex'))).completions['assignment:1:1'],
+    ).toBeTruthy()
+    await wrapper.get('.completion-undo').trigger('click')
+    await flushPromises()
+    expect(axios.patch).toHaveBeenLastCalledWith(
+      'http://localhost:8000/api/coursework/assignment/1/1',
+      { done: false },
+      { withCredentials: true },
+    )
+    expect(task().exists()).toBe(true)
+    expect(task().element.checked).toBe(false)
+    expect(JSON.parse(localStorage.getItem(dashboardStorageKey('alex'))).completions).toEqual({})
+  })
+
+  it('keeps keyboard focus available when completed weekly coursework leaves the list', async () => {
+    await render()
+    const checkbox = wrapper.get(
+      '.weekly-coursework-panel input[aria-label="Mark Project proposal as complete"]',
+    )
+    checkbox.element.focus()
+    await checkbox.setValue(true)
+    await flushPromises()
+    expect(
+      wrapper
+        .find('.weekly-coursework-panel input[aria-label="Mark Project proposal as complete"]')
+        .exists(),
+    ).toBe(false)
+    expect(document.activeElement).toBe(wrapper.get('.completion-undo').element)
+  })
+
+  it('saves and undoes an upcoming quiz from the weekly card when it is outside the selected day', async () => {
+    await render()
+    expect(wrapper.get('#agenda-heading').text()).toBe('Today’s plan')
+    expect(wrapper.get('.agenda-panel').text()).not.toContain('SQL quiz')
+    await wrapper
+      .get('.weekly-coursework-panel input[aria-label="Mark SQL quiz as complete"]')
+      .setValue(true)
+    await flushPromises()
+    expect(axios.patch).toHaveBeenLastCalledWith(
+      'http://localhost:8000/api/coursework/quiz/1/3',
+      { done: true },
+      { withCredentials: true },
+    )
+    expect(wrapper.get('.weekly-coursework-panel').text()).not.toContain('SQL quiz')
+    await wrapper.get('.completion-undo').trigger('click')
+    await flushPromises()
+    expect(axios.patch).toHaveBeenLastCalledWith(
+      'http://localhost:8000/api/coursework/quiz/1/3',
+      { done: false },
+      { withCredentials: true },
+    )
+    expect(wrapper.get('.weekly-coursework-panel').text()).toContain('SQL quiz')
+    expect(JSON.parse(localStorage.getItem(dashboardStorageKey('alex'))).completions).toEqual({})
+  })
+
+  it('keeps the newest completion when an earlier undo finishes and supports undoing an activity', async () => {
+    await render()
+    await wrapper
+      .get('.agenda-panel input[aria-label="Mark Project proposal as complete"]')
+      .setValue(true)
+    await flushPromises()
+    let resolveUndo
+    axios.patch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUndo = resolve
+        }),
+    )
+    await wrapper.get('.completion-undo').trigger('click')
+    await wrapper.get('input[aria-label="Mark Evening run as complete"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.get('.completion-feedback').text()).toContain('Evening run completed.')
+    resolveUndo({ data: { done: false } })
+    await flushPromises()
+    expect(wrapper.get('.completion-feedback').text()).toContain('Evening run completed.')
+    expect(
+      wrapper.get('.agenda-panel input[aria-label="Mark Project proposal as complete"]').element
+        .checked,
+    ).toBe(false)
+    await wrapper.get('.completion-undo').trigger('click')
+    await flushPromises()
+    expect(axios.post).toHaveBeenLastCalledWith(
+      'http://localhost:8000/api/activities/run',
+      { done: false },
+      { withCredentials: true },
+    )
+    expect(wrapper.get('input[aria-label="Mark Evening run as complete"]').element.checked).toBe(
+      false,
+    )
+    expect(wrapper.find('.completion-feedback').exists()).toBe(false)
+  })
+
+  it('retains Undo during keyboard use and dismisses it after inactivity', async () => {
+    await render()
+    await wrapper
+      .get('.agenda-panel input[aria-label="Mark Project proposal as complete"]')
+      .setValue(true)
+    await flushPromises()
+    wrapper.get('.completion-undo').element.focus()
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(wrapper.find('.completion-feedback').exists()).toBe(true)
+    wrapper.get('.completion-undo').element.blur()
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(wrapper.find('.completion-feedback').exists()).toBe(false)
+    expect(wrapper.get('.planner-companion').text()).toContain('2 deadlines tomorrow')
+  })
+
+  it('uses real tomorrow deadlines and avoids claiming a clear day when loading fails', async () => {
+    data.assignments[0].Done = true
+    await render()
+    expect(wrapper.get('.planner-companion').text()).toContain('2 deadlines tomorrow')
+    wrapper.unmount()
+    axios.get.mockImplementation((url) =>
+      url.endsWith('/me')
+        ? Promise.resolve({ data: { user: { id: 'alex', username: 'Alex' } } })
+        : Promise.reject(new Error('Offline')),
+    )
+    await render()
+    expect(wrapper.get('.planner-companion').text()).toContain('Try loading it again')
+    expect(wrapper.get('.planner-companion .login-characters').attributes('data-mood')).toBe('idle')
+  })
+
+  it('recognizes a finished day and prioritizes overdue assignments over all-clear messaging', async () => {
+    data.assignments.forEach((item) => {
+      item.Done = true
+    })
+    data.quizzes.forEach((item) => {
+      item.Done = true
+    })
+    await render()
+    expect(wrapper.get('.planner-companion').text()).toContain('Today’s coursework is done')
+    wrapper.unmount()
+    data.assignments[2].Done = false
+    data.assignments[2].DueDate = '2026-11-03T12:00:00+08:00'
+    await render()
+    expect(wrapper.get('.planner-companion').text()).toContain('1 assignment needs catching up')
+    expect(wrapper.get('.planner-companion .login-characters').attributes('data-mood')).toBe('idle')
   })
 })

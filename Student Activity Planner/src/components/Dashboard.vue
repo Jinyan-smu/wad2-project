@@ -6,7 +6,8 @@ import PlannerNavigation from './PlannerNavigation.vue'
 import PlannerIcon from './PlannerIcon.vue'
 import PlannerCompanion from './PlannerCompanion.vue'
 import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
-import DashboardTools from './DashboardTools.vue'
+import DashboardCoursework from './DashboardCoursework.vue'
+import DashboardWeekSelector from './DashboardWeekSelector.vue'
 import { createDashboardPersonalization } from '../utils/dashboardPersonalization'
 import { getTaskUrgency } from '../utils/taskUrgency'
 
@@ -17,6 +18,48 @@ const plannerLoading = ref(true)
 const plannerError = ref('')
 const actionError = ref('')
 const savingItems = ref([])
+const completionFeedback = ref(null)
+const celebration = ref(null)
+const undoPending = ref(false)
+const feedbackHovered = ref(false)
+const feedbackFocused = ref(false)
+const feedbackElement = ref(null)
+const dashboardRoot = ref(null)
+let feedbackTimeout
+let celebrationTimeout
+let disposed = false
+
+async function dismissFeedback(restoreFocus = false) {
+  const key = completionFeedback.value?.key
+  const hadFocus = feedbackElement.value?.contains(document.activeElement)
+  window.clearTimeout(feedbackTimeout)
+  completionFeedback.value = null
+  feedbackHovered.value = false
+  feedbackFocused.value = false
+  if (restoreFocus && hadFocus) {
+    await nextTick()
+    const task = [...(dashboardRoot.value?.querySelectorAll('[data-completion-key]') || [])].find(
+      (element) => element.dataset.completionKey === key,
+    )
+    ;(task || dashboardRoot.value?.querySelector('#weekly-coursework-heading'))?.focus()
+  }
+}
+function scheduleFeedbackDismissal() {
+  window.clearTimeout(feedbackTimeout)
+  feedbackTimeout = window.setTimeout(() => {
+    if (feedbackHovered.value || feedbackFocused.value || undoPending.value)
+      scheduleFeedbackDismissal()
+    else dismissFeedback()
+  }, 12_000)
+}
+function feedbackFocusOut(event) {
+  feedbackFocused.value = event.currentTarget.contains(event.relatedTarget)
+  scheduleFeedbackDismissal()
+}
+function feedbackPointerLeave() {
+  feedbackHovered.value = false
+  scheduleFeedbackDismissal()
+}
 const assignments = ref([])
 const quizzes = ref([])
 const activities = ref([])
@@ -152,10 +195,15 @@ async function fetchPlannerData() {
   }
 }
 async function toggle(item, event) {
-  if (savingItems.value.includes(item.key) || item.source === 'group-meeting') return
+  return saveCompletion(item, !item.done, event)
+}
+async function saveCompletion(item, done, event, offerUndo = true) {
+  if (savingItems.value.includes(item.key) || item.source === 'group-meeting' || disposed)
+    return false
   actionError.value = ''
+  const sourceElement = event?.target
+  const hadFocus = sourceElement === document.activeElement
   savingItems.value.push(item.key)
-  const done = !item.done
   try {
     if (item.type === 'activity') {
       await axios.post(
@@ -176,16 +224,68 @@ async function toggle(item, event) {
         { withCredentials: true },
       )
     }
+    if (disposed) return false
     item.done = done
     if (item.type !== 'activity') personal.recordCompletion(item, done)
+    if (done) {
+      window.clearTimeout(celebrationTimeout)
+      celebration.value = { key: item.key, title: item.title }
+      celebrationTimeout = window.setTimeout(() => {
+        celebration.value = null
+      }, 3500)
+      if (offerUndo) {
+        completionFeedback.value = { key: item.key, title: item.title }
+        scheduleFeedbackDismissal()
+      }
+    } else {
+      if (celebration.value?.key === item.key) celebration.value = null
+      if (offerUndo && completionFeedback.value?.key === item.key) dismissFeedback()
+    }
+    return true
   } catch (error) {
-    actionError.value =
-      error.response?.data?.message || 'Couldn’t save that change. Please try again.'
+    if (!disposed)
+      actionError.value =
+        error.response?.data?.message || 'Couldn’t save that change. Please try again.'
+    return false
   } finally {
     savingItems.value = savingItems.value.filter((key) => key !== item.key)
     // Restore the native checkbox too when a failed save leaves the model unchanged.
     if (event?.target) event.target.checked = item.done
+    if (
+      hadFocus &&
+      !disposed &&
+      (document.activeElement === sourceElement || document.activeElement === document.body)
+    ) {
+      await nextTick()
+      if (sourceElement.isConnected) sourceElement.focus()
+      else {
+        const nextControl =
+          completionFeedback.value?.key === item.key
+            ? feedbackElement.value?.querySelector('.completion-undo')
+            : dashboardRoot.value?.querySelector('#weekly-coursework-heading')
+        nextControl?.focus()
+      }
+    }
   }
+}
+async function undoCompletion() {
+  const feedback = completionFeedback.value
+  if (!feedback || undoPending.value) return
+  const item = allItems.value.find((entry) => entry.key === feedback.key)
+  if (!item || !item.done) {
+    dismissFeedback()
+    return
+  }
+  feedback.error = ''
+  undoPending.value = true
+  const saved = await saveCompletion(item, false, null, false)
+  if (saved && !disposed) {
+    if (completionFeedback.value === feedback) dismissFeedback(true)
+  }
+  if (!saved && !disposed && completionFeedback.value === feedback)
+    completionFeedback.value.error = 'Couldn’t undo that change. Please try again.'
+  undoPending.value = false
+  if (completionFeedback.value) scheduleFeedbackDismissal()
 }
 
 const greeting = computed(() =>
@@ -203,6 +303,68 @@ const allItems = computed(() =>
     (a, b) => (a.when?.getTime() ?? Infinity) - (b.when?.getTime() ?? Infinity),
   ),
 )
+const companionState = computed(() => {
+  if (plannerLoading.value) return { message: 'Getting your day ready…', mood: 'idle' }
+  if (plannerError.value)
+    return { message: 'Your planner needs a moment. Try loading it again.', mood: 'idle' }
+  if (celebration.value)
+    return {
+      message: '“' + celebration.value.title + '” is done. One less thing on your mind.',
+      mood: 'success',
+    }
+  const coursework = [...assignments.value, ...quizzes.value]
+  const todayStart = startOfDay(now.value)
+  const tomorrowStart = addDays(todayStart, 1)
+  const tomorrowEnd = addDays(todayStart, 2)
+  const overdue = assignments.value.filter(isOverdue).length
+  if (overdue)
+    return {
+      message:
+        overdue +
+        (overdue === 1 ? ' assignment needs' : ' assignments need') +
+        ' catching up. Start with one small step.',
+      mood: 'idle',
+    }
+  const today = coursework.filter(
+    (item) => item.when && item.when >= todayStart && item.when < tomorrowStart,
+  )
+  const leftToday = today.filter((item) => !item.done).length
+  if (leftToday)
+    return {
+      message:
+        leftToday +
+        (leftToday === 1 ? ' coursework item left' : ' coursework items left') +
+        ' today. One small step at a time.',
+      mood: 'idle',
+    }
+  const tomorrow = coursework.filter(
+    (item) => !item.done && item.when && item.when >= tomorrowStart && item.when < tomorrowEnd,
+  ).length
+  if (tomorrow)
+    return {
+      message:
+        tomorrow +
+        (tomorrow === 1 ? ' deadline' : ' deadlines') +
+        ' tomorrow. A little preparation goes a long way.',
+      mood: 'idle',
+    }
+  if (today.length)
+    return {
+      message: 'Today’s coursework is done. Enjoy a little breathing room.',
+      mood: 'success',
+    }
+  if (coursework.length && coursework.every((item) => item.done))
+    return {
+      message: 'You’re all caught up on coursework. Make room for something you enjoy.',
+      mood: 'success',
+    }
+  return {
+    message: coursework.length
+      ? 'Pick one small thing to move forward today.'
+      : 'A fresh start. Add an assignment when you’re ready.',
+    mood: 'idle',
+  }
+})
 const pending = computed(() => assignments.value.filter((item) => !item.done))
 const doneCount = computed(() => assignments.value.filter((item) => item.done).length)
 const progress = computed(() => Math.round((doneCount.value / assignments.value.length) * 100) || 0)
@@ -457,12 +619,15 @@ onMounted(() => {
   }, 60_000)
 })
 onUnmounted(() => {
+  disposed = true
   window.clearInterval(clockInterval)
+  window.clearTimeout(feedbackTimeout)
+  window.clearTimeout(celebrationTimeout)
   personal.dispose()
 })
 </script>
 <template>
-  <div class="app dashboard-app">
+  <div ref="dashboardRoot" class="app dashboard-app">
     <PlannerNavigation active="/dashboard" />
     <main class="dashboard-main flex-grow-1">
       <div class="container-xxl px-0">
@@ -483,7 +648,11 @@ onUnmounted(() => {
             >
           </div>
         </header>
-        <PlannerCompanion character="purple" message="A little planning. A lot more living." />
+        <PlannerCompanion
+          character="purple"
+          :message="companionState.message"
+          :mood="companionState.mood"
+        />
         <div
           v-if="plannerError"
           class="alert alert-danger d-flex flex-wrap gap-2 align-items-center justify-content-between"
@@ -520,42 +689,12 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          <div class="row g-1 g-sm-2 flex-nowrap" role="group" aria-label="Choose a day">
-            <div v-for="day in weekDays" :key="day.key" class="col day-column">
-              <button
-                type="button"
-                class="week-day btn w-100 d-flex flex-column align-items-center justify-content-center"
-                :class="{ selected: day.key === dateKey(selectedDate), 'is-today': day.today }"
-                :aria-pressed="day.key === dateKey(selectedDate)"
-                :aria-label="
-                  dateText(day.date, { weekday: 'long', day: 'numeric', month: 'long' }) +
-                  (day.today ? ', today' : '') +
-                  ', ' +
-                  (plannerLoading || plannerError
-                    ? 'loading'
-                    : day.count + ' pending items, ' + day.deadlines + ' coursework deadlines')
-                "
-                :title="day.deadlines + ' pending coursework deadlines'"
-                :data-date="day.key"
-                @click="selectDay(day.date)"
-              >
-                <span class="day-label"
-                  ><span class="day-name">{{ day.label }}</span
-                  ><strong>{{ day.date.getDate() }}</strong></span
-                >
-                <span class="day-dots" aria-hidden="true"
-                  ><span
-                    v-for="dot in plannerLoading || plannerError ? 0 : Math.min(day.deadlines, 3)"
-                    :key="dot"
-                    class="day-dot"
-                  ></span
-                  ><small v-if="day.deadlines > 3 && !plannerLoading && !plannerError"
-                    >+</small
-                  ></span
-                >
-              </button>
-            </div>
-          </div>
+          <DashboardWeekSelector
+            :days="weekDays"
+            :selected-key="dateKey(selectedDate)"
+            :loading="plannerLoading || !!plannerError"
+            @select="selectDay"
+          />
         </section>
 
         <div
@@ -628,103 +767,118 @@ onUnmounted(() => {
               <div v-else-if="plannerError" class="dashboard-empty">
                 <p>Your schedule will appear here when your planner loads.</p>
               </div>
-              <template v-else>
-                <div v-if="!timeline.length" class="dashboard-empty">
-                  <span class="empty-icon"
-                    ><PlannerIcon :name="filter === 'all' ? 'calendar' : 'check'"
-                  /></span>
-                  <h3>
-                    {{
-                      filter === 'all' ? 'A little breathing room.' : 'Nothing in this category.'
-                    }}
-                  </h3>
-                  <p>
-                    {{
-                      filter === 'all'
-                        ? 'No plans here yet. Add an activity or get a head start on your coursework.'
-                        : 'Try another filter to see the rest of your plans.'
-                    }}
-                  </p>
-                  <RouterLink v-if="filter === 'all'" to="/activities?new=1" class="text-link"
-                    >Plan an activity <PlannerIcon name="arrow"
-                  /></RouterLink>
-                </div>
-                <ul v-else class="list-unstyled mb-0">
-                  <li
-                    v-for="item in pagedTimeline"
-                    :key="item.key"
-                    class="agenda-row d-flex gap-2 gap-sm-3"
-                    :class="[
-                      { 'is-complete': item.done },
-                      'agenda-urgency-' + (itemUrgency(item)?.level || 'none'),
-                    ]"
-                  >
-                    <div class="agenda-time">
-                      <strong>{{ time(item.when) }}</strong
-                      ><span>{{
-                        agendaMode === 'upcoming'
-                          ? dayLabel(item.when)
-                          : item.type === 'activity'
-                            ? 'to ' + time(item.end)
-                            : item.type === 'assignment'
-                              ? 'Due'
-                              : 'Starts'
-                      }}</span>
-                    </div>
-                    <div class="agenda-body flex-grow-1">
-                      <span class="agenda-type-icon"><PlannerIcon :name="itemIcon(item)" /></span>
-                      <div class="agenda-copy min-width-0">
-                        <span class="visually-hidden">{{ itemType(item) }}</span>
-                        <h3>{{ item.title }}</h3>
-                        <p>{{ itemContext(item) }}</p>
-                        <TaskUrgencyBadge :urgency="itemUrgency(item)" />
-                        <RouterLink
-                          v-if="item.source === 'group-meeting'"
-                          class="text-link small mt-2"
-                          :to="activityAction(item).to"
-                          >View meeting <PlannerIcon name="arrow"
-                        /></RouterLink>
-                      </div>
-                    </div>
-                    <input
-                      v-if="item.source !== 'group-meeting'"
-                      type="checkbox"
-                      class="form-check-input mt-2"
-                      :aria-label="
-                        'Mark ' + item.title + ' as ' + (item.done ? 'incomplete' : 'complete')
-                      "
-                      :checked="item.done"
-                      :disabled="savingItems.includes(item.key)"
-                      @change="toggle(item, $event)"
-                    />
-                  </li>
-                </ul>
+              <Transition v-else name="agenda-change" mode="out-in">
                 <div
-                  v-if="timelinePageCount > 1"
-                  class="pagination-footer d-flex align-items-center justify-content-between gap-2"
+                  :key="
+                    agendaMode +
+                    ':' +
+                    (agendaMode === 'day' ? dateKey(selectedDate) : 'upcoming') +
+                    ':' +
+                    filter
+                  "
+                  class="agenda-content"
                 >
-                  <small aria-live="polite">{{ pageRange(timelinePage, timeline.length) }}</small>
-                  <div class="btn-group">
-                    <button
-                      class="btn btn-sm btn-light icon-button"
-                      type="button"
-                      aria-label="Previous six timeline items"
-                      :disabled="timelinePage === 0"
-                      @click="timelinePage--"
+                  <div v-if="!timeline.length" class="dashboard-empty">
+                    <span class="empty-icon"
+                      ><PlannerIcon :name="filter === 'all' ? 'calendar' : 'check'"
+                    /></span>
+                    <h3>
+                      {{
+                        filter === 'all' ? 'A little breathing room.' : 'Nothing in this category.'
+                      }}
+                    </h3>
+                    <p>
+                      {{
+                        filter === 'all'
+                          ? 'No plans here yet. Add an activity or get a head start on your coursework.'
+                          : 'Try another filter to see the rest of your plans.'
+                      }}
+                    </p>
+                    <RouterLink v-if="filter === 'all'" to="/activities?new=1" class="text-link"
+                      >Plan an activity <PlannerIcon name="arrow"
+                    /></RouterLink>
+                  </div>
+                  <ul v-else class="list-unstyled mb-0">
+                    <li
+                      v-for="item in pagedTimeline"
+                      :key="item.key"
+                      class="agenda-row d-flex gap-2 gap-sm-3"
+                      :class="[
+                        {
+                          'is-complete': item.done,
+                          'just-completed': item.done && celebration?.key === item.key,
+                        },
+                        'agenda-urgency-' + (itemUrgency(item)?.level || 'none'),
+                      ]"
                     >
-                      <PlannerIcon name="left" /></button
-                    ><button
-                      class="btn btn-sm btn-light icon-button"
-                      type="button"
-                      aria-label="Next six timeline items"
-                      :disabled="timelinePage >= timelinePageCount - 1"
-                      @click="timelinePage++"
-                    >
-                      <PlannerIcon name="right" />
-                    </button>
+                      <div class="agenda-time">
+                        <strong>{{ time(item.when) }}</strong
+                        ><span>{{
+                          agendaMode === 'upcoming'
+                            ? dayLabel(item.when)
+                            : item.type === 'activity'
+                              ? 'to ' + time(item.end)
+                              : item.type === 'assignment'
+                                ? 'Due'
+                                : 'Starts'
+                        }}</span>
+                      </div>
+                      <div class="agenda-body flex-grow-1">
+                        <span class="agenda-type-icon"><PlannerIcon :name="itemIcon(item)" /></span>
+                        <div class="agenda-copy min-width-0">
+                          <span class="visually-hidden">{{ itemType(item) }}</span>
+                          <h3>{{ item.title }}</h3>
+                          <p>{{ itemContext(item) }}</p>
+                          <TaskUrgencyBadge :urgency="itemUrgency(item)" />
+                          <RouterLink
+                            v-if="item.source === 'group-meeting'"
+                            class="text-link small mt-2"
+                            :to="activityAction(item).to"
+                            >View meeting <PlannerIcon name="arrow"
+                          /></RouterLink>
+                        </div>
+                      </div>
+                      <input
+                        v-if="item.source !== 'group-meeting'"
+                        type="checkbox"
+                        class="form-check-input mt-2"
+                        :aria-label="
+                          'Mark ' + item.title + ' as ' + (item.done ? 'incomplete' : 'complete')
+                        "
+                        :checked="item.done"
+                        :data-completion-key="item.key"
+                        :disabled="savingItems.includes(item.key)"
+                        @change="toggle(item, $event)"
+                      />
+                    </li>
+                  </ul>
+                  <div
+                    v-if="timelinePageCount > 1"
+                    class="pagination-footer d-flex align-items-center justify-content-between gap-2"
+                  >
+                    <small aria-live="polite">{{ pageRange(timelinePage, timeline.length) }}</small>
+                    <div class="btn-group">
+                      <button
+                        class="btn btn-sm btn-light icon-button"
+                        type="button"
+                        aria-label="Previous six timeline items"
+                        :disabled="timelinePage === 0"
+                        @click="timelinePage--"
+                      >
+                        <PlannerIcon name="left" /></button
+                      ><button
+                        class="btn btn-sm btn-light icon-button"
+                        type="button"
+                        aria-label="Next six timeline items"
+                        :disabled="timelinePage >= timelinePageCount - 1"
+                        @click="timelinePage++"
+                      >
+                        <PlannerIcon name="right" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </template>
+              </Transition>
               <div
                 class="agenda-footer px-3 px-sm-4 py-3 d-flex flex-wrap justify-content-between align-items-center gap-2"
               >
@@ -736,24 +890,16 @@ onUnmounted(() => {
               </div>
             </section>
           </div>
-          <aside class="col-12 col-xl-4 dashboard-side" aria-label="Priorities and weather">
-            <DashboardTools
-              v-if="!plannerLoading && !plannerError && personal.state.hydrated"
+          <aside class="col-12 col-xl-4 dashboard-side" aria-label="Weekly coursework and weather">
+            <DashboardCoursework
               :items="allItems"
-              :personal="personal"
+              :week-start="weekStart"
+              :now="now"
               :saving-items="savingItems"
+              :loading="plannerLoading"
+              :load-error="plannerError"
               @complete="toggle($event.item, $event.event)"
             />
-            <section v-else class="dashboard-panel p-3 p-sm-4" aria-labelledby="priorities-heading">
-              <h2 id="priorities-heading">Your top three</h2>
-              <p class="small dashboard-muted mb-0 mt-2">
-                {{
-                  plannerLoading
-                    ? 'Getting your priorities ready…'
-                    : 'Your priorities will appear when the planner loads.'
-                }}
-              </p>
-            </section>
 
             <section
               id="dashboard-weather"
@@ -1063,6 +1209,41 @@ onUnmounted(() => {
         </section>
       </div>
     </main>
+    <Transition name="completion-feedback">
+      <div
+        v-if="completionFeedback"
+        ref="feedbackElement"
+        class="completion-feedback"
+        @pointerenter="feedbackHovered = true"
+        @pointerleave="feedbackPointerLeave"
+        @focusin="feedbackFocused = true"
+        @focusout="feedbackFocusOut"
+      >
+        <span class="completion-feedback-icon" aria-hidden="true"
+          ><PlannerIcon name="check"
+        /></span>
+        <p class="mb-0" role="status">
+          {{ completionFeedback.error || completionFeedback.title + ' completed.' }}
+        </p>
+        <button
+          class="completion-undo"
+          type="button"
+          :disabled="undoPending || savingItems.includes(completionFeedback.key)"
+          @click="undoCompletion"
+        >
+          {{ undoPending ? 'Undoing…' : 'Undo' }}
+        </button>
+        <button
+          class="completion-dismiss"
+          type="button"
+          aria-label="Dismiss completion message"
+          :disabled="undoPending"
+          @click="dismissFeedback(true)"
+        >
+          ×
+        </button>
+      </div>
+    </Transition>
   </div>
 </template>
 

@@ -9,6 +9,11 @@ const props = defineProps({
     validator: (value) => ['purple', 'coral', 'blue', 'mint'].includes(value),
   },
   message: { type: String, required: true },
+  mood: {
+    type: String,
+    default: 'idle',
+    validator: (value) => ['idle', 'excited', 'success', 'error'].includes(value),
+  },
 })
 
 const palettes = {
@@ -21,6 +26,9 @@ const palette = computed(() => palettes[props.character])
 const art = ref(null)
 const animate = ref(false)
 const hovered = ref(false)
+const characterMood = computed(() =>
+  props.mood !== 'idle' ? props.mood : hovered.value ? 'excited' : 'idle',
+)
 const gaze = ref({ x: 0, y: 0 })
 let motionPreference
 let frame = null
@@ -29,7 +37,7 @@ function syncMotion() {
   let reduced = motionPreference?.matches ?? false
   try {
     const saved = sessionStorage.getItem('student-planner:login-reduced-motion')
-    if (saved === 'true' || saved === 'false') reduced = saved === 'true'
+    reduced ||= saved === 'true'
   } catch {
     // Follow the device preference when browser storage is unavailable.
   }
@@ -70,19 +78,24 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="planner-companion"
+    :data-animate="animate"
     :style="{ '--companion-paper': palette.paper, '--companion-accent': palette.accent }"
     @pointerenter="hovered = true"
     @pointerleave="hovered = false"
   >
     <div class="companion-copy">
       <span class="companion-eyebrow">{{ palette.label }}</span>
-      <p>{{ message }}</p>
+      <div class="companion-message">
+        <Transition name="companion-message" :css="animate">
+          <p :key="message">{{ message }}</p>
+        </Transition>
+      </div>
     </div>
     <div ref="art" class="companion-art" aria-hidden="true">
       <span class="companion-spark companion-spark--one">✧</span>
       <LoginCharacters
         :character="character"
-        :mood="hovered ? 'excited' : 'idle'"
+        :mood="characterMood"
         :gaze="gaze"
         :animate="animate"
       />
@@ -136,12 +149,42 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 .companion-copy p {
+  grid-area: 1 / 1;
   margin: 0;
   color: var(--ink);
   font-size: 0.96rem;
   font-weight: 550;
   line-height: 1.5;
   letter-spacing: -0.02em;
+}
+.companion-message {
+  display: grid;
+  align-items: center;
+  min-height: 3em;
+}
+.companion-message-enter-active,
+.companion-message-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+.companion-message-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.companion-message-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.planner-companion[data-animate='false'] .companion-message > p {
+  transition: none;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .companion-message > p {
+    transition: none;
+    transform: none;
+  }
 }
 .companion-art {
   position: absolute;

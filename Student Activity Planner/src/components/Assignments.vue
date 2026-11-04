@@ -1,1334 +1,1199 @@
 <script setup>
-  import { computed, onMounted, ref, watch } from 'vue'
-  import { useRoute } from 'vue-router'
-  import axios from 'axios'
-  import PlannerNavigation from './PlannerNavigation.vue'
-  import PlannerCompanion from './PlannerCompanion.vue'
-  import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
-  import { recordCourseworkCompletion } from '../utils/dashboardPersonalization'
-  import { getTaskUrgency } from '../utils/taskUrgency'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
+import axios from 'axios'
+import PlannerNavigation from './PlannerNavigation.vue'
+import PlannerCompanion from './PlannerCompanion.vue'
+import PlannerIcon from './PlannerIcon.vue'
+import TaskUrgencyBadge from './TaskUrgencyBadge.vue'
+import { recordCourseworkCompletion } from '../utils/dashboardPersonalization'
 
-  const API_URL = 'http://localhost:8000/api'
-  const route = useRoute()
-  let viewerRequest = Promise.resolve(null)
+const API_URL = 'http://localhost:8000/api'
+const TIME_ZONE = 'Asia/Singapore'
+const route = useRoute()
+const courses = ref([])
+const assignments = ref([])
+const quizzes = ref([])
+const loading = ref(true)
+const loadError = ref('')
+const formError = ref('')
+const actionError = ref('')
+const successMessage = ref('')
+const saving = ref(false)
+const pendingKeys = ref([])
+const showForm = ref(false)
+const editingAssignment = ref(null)
+const selectedCourseId = ref('all')
+const searchQuery = ref('')
+const typeFilter = ref('all')
+const statusFilter = ref('todo')
+const selectedKey = ref('')
+const detailsHeading = ref(null)
+const nameInput = ref(null)
+const now = ref(new Date())
+const form = ref({ name: '', courseId: '', dueDate: '' })
+let viewerRequest = Promise.resolve(null)
+let loadRequest = 0
+let clock
+let destroyed = false
 
-  const courses = ref([])
-  const assignments = ref([])
-  const quizzes = ref([])
-  const loading = ref(true)
-  const saving = ref(false)
-  const loadError = ref('')
-  const formError = ref('')
-  const actionError = ref('')
-  const successMessage = ref('')
-  const showForm = ref(false)
-  const editingAssignment = ref(null)
-  const selectedCourseId = ref('all')
-  const searchQuery = ref('')
-  const statusFilter = ref('all')
-  const typeFilter = ref('all')
-  const activeView = ref('calendar')
-  const collapsedCourseIds = ref([])
-  const selectedDateKey = ref('')
-  const currentMonth = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
-  const typeFilterOptions = [
-    { value: 'all', label: 'All types' },
-    { value: 'assignment', label: 'Assignments' },
-    { value: 'quiz', label: 'Quizzes' },
-  ]
-  const statusFilterOptions = [
-    { value: 'all', label: 'All' },
-    { value: 'upcoming', label: 'Upcoming' },
-    { value: 'overdue', label: 'Overdue' },
-    { value: 'completed', label: 'Completed' },
-  ]
-
-  const form = ref({
-    name: '',
-    courseId: '',
-    dueDate: '',
-  })
-
-  const filteredAssignments = computed(() =>
-    assignments.value.filter(
-      (item) => selectedCourseId.value === 'all' || String(item.CourseId) === selectedCourseId.value,
+const taskKey = (item) => [item.Type, item.CourseId, item.Id].join(':')
+const validDate = (value) => Boolean(value) && Number.isFinite(new Date(value).getTime())
+function dateKey(value) {
+  if (!validDate(value)) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(value))
+  return ['year', 'month', 'day']
+    .map((type) => parts.find((part) => part.type === type).value)
+    .join('-')
+}
+const today = computed(() => dateKey(now.value))
+const weekEnd = computed(() => {
+  const date = new Date(`${today.value}T12:00:00+08:00`)
+  date.setUTCDate(date.getUTCDate() + 7)
+  return dateKey(date)
+})
+const tasks = computed(() =>
+  [
+    ...assignments.value.map((item) => ({ ...item, Type: 'assignment', Done: Boolean(item.Done) })),
+    ...quizzes.value.map((item) => ({ ...item, Type: 'quiz', Done: Boolean(item.Done) })),
+  ].map((item) => ({
+    ...item,
+    key: taskKey(item),
+    CourseName:
+      item.CourseName ||
+      courses.value.find((course) => String(course.Id) === String(item.CourseId))?.Name ||
+      'Coursework',
+  })),
+)
+function bucket(item) {
+  if (item.Done) return 'Completed'
+  if (!validDate(item.DueDate)) return 'No due date'
+  if (new Date(item.DueDate) < now.value) return 'Overdue'
+  const dueDay = dateKey(item.DueDate)
+  if (dueDay === today.value) return 'Due today'
+  if (dueDay <= weekEnd.value) return 'Next 7 days'
+  return 'Later'
+}
+const summary = computed(() => ({
+  overdue: tasks.value.filter((item) => bucket(item) === 'Overdue').length,
+  today: tasks.value.filter((item) => bucket(item) === 'Due today').length,
+  upcoming: tasks.value.filter((item) => bucket(item) === 'Next 7 days').length,
+}))
+const pendingCount = computed(() => tasks.value.filter((item) => !item.Done).length)
+const completedCount = computed(() => tasks.value.filter((item) => item.Done).length)
+const filteredTasks = computed(() =>
+  tasks.value
+    .filter((item) => {
+      if (selectedCourseId.value !== 'all' && String(item.CourseId) !== selectedCourseId.value)
+        return false
+      if (typeFilter.value !== 'all' && item.Type !== typeFilter.value) return false
+      const query = searchQuery.value.trim().toLowerCase()
+      if (query && !`${item.Name} ${item.CourseName}`.toLowerCase().includes(query)) return false
+      if (statusFilter.value === 'completed') return item.Done
+      if (item.Done) return false
+      if (statusFilter.value === 'overdue') return bucket(item) === 'Overdue'
+      if (statusFilter.value === 'upcoming') return !['Overdue'].includes(bucket(item))
+      return true
+    })
+    .sort(
+      (a, b) =>
+        (validDate(a.DueDate) ? Date.parse(a.DueDate) : Infinity) -
+          (validDate(b.DueDate) ? Date.parse(b.DueDate) : Infinity) || a.Name.localeCompare(b.Name),
     ),
-  )
+)
+const taskGroups = computed(() =>
+  ['Overdue', 'Due today', 'Next 7 days', 'Later', 'No due date', 'Completed']
+    .map((label) => ({
+      label,
+      items: filteredTasks.value.filter((item) => bucket(item) === label),
+    }))
+    .filter((group) => group.items.length),
+)
+const selectedTask = computed(
+  () => filteredTasks.value.find((item) => item.key === selectedKey.value) || null,
+)
+const hasFilters = computed(
+  () =>
+    selectedCourseId.value !== 'all' ||
+    typeFilter.value !== 'all' ||
+    searchQuery.value ||
+    ['overdue', 'upcoming'].includes(statusFilter.value),
+)
+watch(
+  filteredTasks,
+  (list) => {
+    if (!list.some((item) => item.key === selectedKey.value)) selectedKey.value = list[0]?.key || ''
+  },
+  { immediate: true },
+)
 
-  const filteredQuizzes = computed(() =>
-    quizzes.value.filter(
-      (item) => selectedCourseId.value === 'all' || String(item.CourseId) === selectedCourseId.value,
-    ),
-  )
-
-  const calendarEvents = computed(() =>
-    [...filteredAssignments.value, ...filteredQuizzes.value]
-      .map((item) => ({
-        ...item,
-        EventDate: item.EventDate || item.DueDate || item.StartDate || null,
-        EventDateLabel: item.EventDateLabel || (item.DueDate ? 'Due' : 'No due date'),
-        Done: Boolean(item.Done),
-      }))
-      .filter((item) => typeFilter.value === 'all' || item.Type === typeFilter.value)
-      .filter((item) => {
-        const query = searchQuery.value.trim().toLowerCase()
-        return !query || `${item.Name} ${item.CourseName}`.toLowerCase().includes(query)
+function formatDate(value) {
+  return validDate(value)
+    ? new Date(value).toLocaleDateString('en-SG', {
+        timeZone: TIME_ZONE,
+        day: 'numeric',
+        month: 'short',
       })
-      .filter((item) => statusFilter.value === 'all' || eventStatus(item) === statusFilter.value)
-      .sort((first, second) => {
-        if (!first.EventDate) return 1
-        if (!second.EventDate) return -1
-        return new Date(first.EventDate) - new Date(second.EventDate)
-      }),
-  )
-
-  const scheduledEvents = computed(() => calendarEvents.value.filter((item) => item.EventDate))
-  const undatedEvents = computed(() => calendarEvents.value.filter((item) => !item.EventDate))
-  const groupedEvents = computed(() => {
-    const groups = new Map()
-    calendarEvents.value.forEach((event) => {
-      const id = String(event.CourseId)
-      if (!groups.has(id)) groups.set(id, { id, name: event.CourseName, events: [] })
-      groups.get(id).events.push(event)
+    : 'No due date'
+}
+function formatTime(value) {
+  return validDate(value)
+    ? new Date(value).toLocaleTimeString('en-SG', {
+        timeZone: TIME_ZONE,
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : ''
+}
+function urgency(item) {
+  if (item.Done || !validDate(item.DueDate)) return null
+  if (new Date(item.DueDate) < now.value) return { level: 'overdue', label: 'Overdue' }
+  const dueDay = Date.parse(`${dateKey(item.DueDate)}T00:00:00Z`)
+  const currentDay = Date.parse(`${today.value}T00:00:00Z`)
+  const daysAway = Math.round((dueDay - currentDay) / 86400000)
+  if (daysAway === 0) return { level: 'urgent', label: 'Due today' }
+  if (daysAway === 1) return { level: 'urgent', label: 'Due tomorrow' }
+  if (daysAway <= 3) return { level: 'soon', label: `Due in ${daysAway} days` }
+  if (daysAway <= 7) return { level: 'week', label: `Due in ${daysAway} days` }
+  return null
+}
+function inputDate(value) {
+  if (!validDate(value)) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(value))
+  const part = (type) => parts.find((item) => item.type === type).value
+  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`
+}
+function messageOf(error, fallback) {
+  return typeof error?.response?.data?.message === 'string' ? error.response.data.message : fallback
+}
+function clearFilters() {
+  selectedCourseId.value = 'all'
+  searchQuery.value = ''
+  typeFilter.value = 'all'
+  if (statusFilter.value !== 'completed') statusFilter.value = 'todo'
+}
+async function selectTask(item) {
+  selectedKey.value = item.key
+  await nextTick()
+  detailsHeading.value?.focus({ preventScroll: true })
+  if (window.innerWidth < 1200) {
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    detailsHeading.value?.closest('.assignment-details')?.scrollIntoView?.({
+      block: 'start',
+      behavior: reducedMotion ? 'auto' : 'smooth',
     })
-    return [...groups.values()].sort((first, second) => first.name.localeCompare(second.name))
-  })
-  const monthTitle = computed(() =>
-    currentMonth.value.toLocaleDateString('en-SG', {
-      month: 'long',
-      year: 'numeric',
-    }),
-  )
-
-  const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-  const calendarDays = computed(() => {
-    const year = currentMonth.value.getFullYear()
-    const month = currentMonth.value.getMonth()
-    const firstDay = new Date(year, month, 1)
-    const mondayOffset = (firstDay.getDay() + 6) % 7
-    const gridStart = new Date(year, month, 1 - mondayOffset)
-
-    return Array.from({ length: 42 }, (_, index) => {
-      const date = new Date(gridStart)
-      date.setDate(gridStart.getDate() + index)
-      const key = toDateKey(date)
-
-      return {
-        date,
-        key,
-        dayNumber: date.getDate(),
-        inCurrentMonth: date.getMonth() === month,
-        isToday: key === toDateKey(new Date()),
-        isSelected: key === selectedDateKey.value,
-        events: scheduledEvents.value.filter((item) => toDateKey(new Date(item.EventDate)) === key),
-      }
-    })
-  })
-
-  const selectedDateEvents = computed(() =>
-    calendarEvents.value.filter(
-      (item) => item.EventDate && toDateKey(new Date(item.EventDate)) === selectedDateKey.value,
-    ),
-  )
-
-  const hasActiveFilters = computed(() =>
-    Boolean(searchQuery.value || selectedCourseId.value !== 'all' || statusFilter.value !== 'all' || typeFilter.value !== 'all'),
-  )
-
-  const monthEventCount = computed(
-    () =>
-      scheduledEvents.value.filter((item) => {
-        const date = new Date(item.EventDate)
-        return (
-          date.getFullYear() === currentMonth.value.getFullYear() &&
-          date.getMonth() === currentMonth.value.getMonth()
-        )
-      }).length,
-  )
-
-  function toDateKey(date) {
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
   }
-
-  function formatDate(value, options = { day: 'numeric', month: 'short', year: 'numeric' }) {
-    if (!value) return 'No due date'
-    return new Date(value).toLocaleDateString('en-SG', options)
+}
+function closeForm() {
+  if (saving.value) return
+  showForm.value = false
+  editingAssignment.value = null
+  formError.value = ''
+}
+async function toggleForm() {
+  if (saving.value) return
+  if (showForm.value) return closeForm()
+  editingAssignment.value = null
+  form.value = {
+    name: '',
+    courseId: courses.value[0] ? String(courses.value[0].Id) : '',
+    dueDate: '',
   }
-
-  function formatTime(value) {
-    if (!value) return ''
-    return new Date(value).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit' })
+  formError.value = ''
+  showForm.value = true
+  await nextTick()
+  nameInput.value?.focus()
+}
+async function startEditing(item) {
+  if (saving.value || item.Type !== 'assignment' || !item.IsCustom) return
+  editingAssignment.value = item
+  form.value = {
+    name: item.Name,
+    courseId: String(item.CourseId),
+    dueDate: inputDate(item.DueDate),
   }
+  formError.value = ''
+  showForm.value = true
+  await nextTick()
+  nameInput.value?.focus()
+}
 
-  function eventStatus(item) {
-    if (item.Done) return 'completed'
-    if (!item.EventDate) return 'undated'
-
-    const eventDate = new Date(item.DueDate || item.EventDate)
-    if (item.DueDate && eventDate < new Date()) return 'overdue'
-    if (eventDate >= new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())) {
-      return 'upcoming'
-    }
-    return 'past'
-  }
-
-  function eventStatusLabel(item) {
-    const status = eventStatus(item)
-    return ({
-      completed: 'Completed',
-      overdue: 'Overdue',
-      upcoming: 'Upcoming',
-      undated: 'No date',
-      past: 'Past',
-    })[status]
-  }
-
-  function eventUrgency(item) {
-    return getTaskUrgency(item.DueDate, { done: item.Done })
-  }
-
-  function urgencyClass(item) {
-    const urgency = eventUrgency(item)
-    return urgency ? `urgency-${urgency.level}` : ''
-  }
-
-  function friendlyEventDate(item) {
-    if (!item.EventDate) return 'No due date'
-
-    const value = new Date(item.DueDate || item.EventDate)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const eventDay = new Date(value)
-    eventDay.setHours(0, 0, 0, 0)
-    const dayDifference = Math.round((eventDay - today) / 86400000)
-    const label = item.DueDate ? 'Due' : 'Available'
-
-    if (item.DueDate && value < new Date()) {
-      if (dayDifference === 0) return 'Overdue · earlier today'
-      return `Overdue by ${Math.abs(dayDifference)} day${Math.abs(dayDifference) === 1 ? '' : 's'}`
-    }
-    if (dayDifference === 0) return `${label} today`
-    if (dayDifference === 1) return `${label} tomorrow`
-    if (dayDifference > 1 && dayDifference <= 7) return `${label} in ${dayDifference} days`
-    return `${label} ${formatDate(value, { day: 'numeric', month: 'short' })}`
-  }
-
-  function localDateTimeInput(value) {
-    if (!value) return ''
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return ''
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-  }
-
-  function clearFilters() {
+function applyRoute() {
+  selectedCourseId.value =
+    typeof route.query.course === 'string' &&
+    courses.value.some((course) => String(course.Id) === route.query.course)
+      ? route.query.course
+      : 'all'
+  searchQuery.value = typeof route.query.search === 'string' ? route.query.search : ''
+  typeFilter.value = ['assignment', 'quiz'].includes(route.query.type) ? route.query.type : 'all'
+  statusFilter.value = ['completed', 'overdue', 'upcoming'].includes(route.query.status)
+    ? route.query.status
+    : 'todo'
+  const event =
+    typeof route.query.event === 'string'
+      ? route.query.event
+      : typeof route.query.id === 'string' && route.query.type && route.query.course
+        ? `${route.query.type}:${route.query.course}:${route.query.id}`
+        : ''
+  const requested = tasks.value.find((item) => item.key === event)
+  if (requested) {
+    selectedCourseId.value = String(requested.CourseId)
+    typeFilter.value = requested.Type
     searchQuery.value = ''
-    selectedCourseId.value = 'all'
-    statusFilter.value = 'all'
-    typeFilter.value = 'all'
+    statusFilter.value = requested.Done ? 'completed' : 'todo'
+    selectedKey.value = requested.key
   }
+  if (route.query.new === '1' && !showForm.value) toggleForm()
+}
+watch(
+  () => [
+    route.query.course,
+    route.query.search,
+    route.query.status,
+    route.query.type,
+    route.query.id,
+    route.query.event,
+    route.query.new,
+  ],
+  applyRoute,
+)
 
-  function toggleCourse(id) {
-    const key = String(id)
-    collapsedCourseIds.value = collapsedCourseIds.value.includes(key)
-      ? collapsedCourseIds.value.filter((courseId) => courseId !== key)
-      : [...collapsedCourseIds.value, key]
+async function loadPlannerData({ routeFilters = false } = {}) {
+  const request = ++loadRequest
+  loading.value = true
+  loadError.value = ''
+  try {
+    const { data } = await axios.get(`${API_URL}/planner-data`, { withCredentials: true })
+    if (destroyed || request !== loadRequest) return false
+    courses.value = data.courses || []
+    assignments.value = data.assignments || []
+    quizzes.value = data.quizzes || []
+    if (!form.value.courseId && courses.value.length)
+      form.value.courseId = String(courses.value[0].Id)
+    if (routeFilters) applyRoute()
+    return true
+  } catch (error) {
+    if (!destroyed && request === loadRequest)
+      loadError.value = messageOf(error, 'Could not load your coursework. Please try again.')
+    return false
+  } finally {
+    if (!destroyed && request === loadRequest) loading.value = false
   }
-
-  function openCourseList() {
-    activeView.value = 'list'
-    collapsedCourseIds.value = groupedEvents.value.map((group) => group.id)
+}
+async function saveAssignment() {
+  if (saving.value) return
+  formError.value = ''
+  successMessage.value = ''
+  if (!form.value.name.trim() || !form.value.courseId) {
+    formError.value = 'Enter an assignment name and choose a course.'
+    return
   }
-
-  function isCourseCollapsed(id) {
-    return collapsedCourseIds.value.includes(String(id))
+  const due = form.value.dueDate ? new Date(`${form.value.dueDate}+08:00`) : null
+  if (due && !Number.isFinite(due.getTime())) {
+    formError.value = 'Enter a valid due date.'
+    return
   }
-
-  function changeMonth(amount) {
-    currentMonth.value = new Date(
-      currentMonth.value.getFullYear(),
-      currentMonth.value.getMonth() + amount,
-      1,
-    )
+  const editing = editingAssignment.value
+  const payload = {
+    name: form.value.name.trim(),
+    courseId: form.value.courseId,
+    dueDate: due ? due.toISOString() : null,
   }
-
-  function goToToday() {
-    const today = new Date()
-    currentMonth.value = new Date(today.getFullYear(), today.getMonth(), 1)
-    selectedDateKey.value = toDateKey(today)
-  }
-
-  function selectDay(day) {
-    selectedDateKey.value = day.key
-    if (!day.inCurrentMonth) {
-      currentMonth.value = new Date(day.date.getFullYear(), day.date.getMonth(), 1)
-    }
-  }
-
-  function toggleForm() {
-    showForm.value = !showForm.value
-    formError.value = ''
-    successMessage.value = ''
-    actionError.value = ''
-    if (!showForm.value) {
-      editingAssignment.value = null
-      form.value.name = ''
-      form.value.dueDate = ''
-      if (courses.value.length) form.value.courseId = String(courses.value[0].Id)
-    } else {
-      editingAssignment.value = null
-      form.value.name = ''
-      form.value.dueDate = ''
-    }
-  }
-
-  function startEditingAssignment(event) {
-    editingAssignment.value = event
-    form.value.name = event.Name
-    form.value.courseId = String(event.CourseId)
-    form.value.dueDate = localDateTimeInput(event.DueDate)
-    formError.value = ''
-    successMessage.value = ''
-    actionError.value = ''
-    showForm.value = true
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  async function loadPlannerData() {
-    loading.value = true
-    loadError.value = ''
-
-    try {
-      const { data } = await axios.get(`${API_URL}/planner-data`, { withCredentials: true })
-      courses.value = data.courses || []
-      assignments.value = data.assignments || []
-      quizzes.value = data.quizzes || []
-      applyDashboardFilters()
-      if (!form.value.courseId && courses.value.length) {
-        form.value.courseId = String(courses.value[0].Id)
-      }
-    } catch (error) {
-      loadError.value =
-        error.response?.data?.message || 'Could not load your course work. Please try again.'
-    } finally {
-      loading.value = false
-    }
-  }
-
-  async function saveAssignment() {
-    formError.value = ''
-    successMessage.value = ''
-
-    if (!form.value.name.trim() || !form.value.courseId) {
-      formError.value = 'Enter an assignment name and choose a course.'
-      return
-    }
-
-    let dueDate = null
-    if (form.value.dueDate) {
-      const parsedDate = new Date(form.value.dueDate)
-      if (Number.isNaN(parsedDate.getTime())) {
-        formError.value = 'Enter a valid due date.'
-        return
-      }
-      dueDate = parsedDate.toISOString()
-    }
-
-    saving.value = true
-    try {
-      const payload = {
-        name: form.value.name.trim(),
-        courseId: form.value.courseId,
-        dueDate,
-      }
-      if (editingAssignment.value) {
-        await axios.patch(
-          `${API_URL}/assignments/${encodeURIComponent(form.value.courseId)}/${encodeURIComponent(editingAssignment.value.Id)}`,
+  saving.value = true
+  try {
+    const response = editing
+      ? await axios.patch(
+          `${API_URL}/assignments/${encodeURIComponent(editing.CourseId)}/${encodeURIComponent(editing.Id)}`,
           payload,
           { withCredentials: true },
         )
-      } else {
-        await axios.post(`${API_URL}/assignments`, payload, { withCredentials: true })
-      }
-
-      await loadPlannerData()
-      form.value.name = ''
-      form.value.dueDate = ''
-      showForm.value = false
-      successMessage.value = editingAssignment.value
-        ? 'Assignment updated.'
-        : 'Assignment saved to the project data file.'
-      editingAssignment.value = null
-    } catch (error) {
-      formError.value =
-        error.response?.data?.message || 'Could not save the assignment. Please try again.'
-    } finally {
-      saving.value = false
-    }
-  }
-
-  async function toggleCompleted(event) {
-    actionError.value = ''
-    const done = !event.Done
-    try {
-      await axios.patch(
-        `${API_URL}/coursework/${event.Type}/${encodeURIComponent(event.CourseId)}/${encodeURIComponent(event.Id)}`,
-        { done },
-        { withCredentials: true },
+      : await axios.post(`${API_URL}/assignments`, payload, { withCredentials: true })
+    if (destroyed) return
+    const saved = response?.data?.assignment
+    if (saved) {
+      const index = assignments.value.findIndex(
+        (item) =>
+          String(item.Id) === String(saved.Id) && String(item.CourseId) === String(saved.CourseId),
       )
-      const items = event.Type === 'quiz' ? quizzes.value : assignments.value
-      const item = items.find((candidate) =>
-        String(candidate.Id) === String(event.Id) && String(candidate.CourseId) === String(event.CourseId),
-      )
-      if (item) {
-        item.Done = done
-        viewerRequest.then(userId => recordCourseworkCompletion(userId, { key: [event.Type, event.CourseId, event.Id].join(':'), title: event.Name }, done))
-      }
-      successMessage.value = done ? 'Marked as completed.' : 'Marked as not completed.'
-    } catch (error) {
-      actionError.value = error.response?.data?.message || 'Could not update this item. Please try again.'
-    }
+      if (index >= 0) assignments.value[index] = { ...assignments.value[index], ...saved }
+      else assignments.value.push(saved)
+      clearFilters()
+      statusFilter.value = assignments.value.find(
+        (item) =>
+          String(item.Id) === String(saved.Id) && String(item.CourseId) === String(saved.CourseId),
+      )?.Done
+        ? 'completed'
+        : 'todo'
+      selectedKey.value = `assignment:${saved.CourseId}:${saved.Id}`
+    } else await loadPlannerData()
+    if (destroyed) return
+    showForm.value = false
+    editingAssignment.value = null
+    form.value.name = ''
+    form.value.dueDate = ''
+    successMessage.value = editing ? 'Assignment updated.' : 'Assignment saved.'
+  } catch (error) {
+    if (!destroyed)
+      formError.value = messageOf(error, 'Could not save the assignment. Please try again.')
+  } finally {
+    if (!destroyed) saving.value = false
   }
+}
 
-  function applyDashboardFilters() {
-    if (typeof route.query.course === 'string' && courses.value.some(course => String(course.Id) === route.query.course)) selectedCourseId.value = route.query.course
-    if (typeof route.query.search === 'string') {
-      searchQuery.value = route.query.search
-      activeView.value = 'list'
-    }
+async function toggleCompleted(item, event) {
+  if (event?.target) event.target.checked = item.Done
+  if (pendingKeys.value.includes(item.key)) return
+  pendingKeys.value.push(item.key)
+  actionError.value = ''
+  const done = !item.Done
+  try {
+    await axios.patch(
+      `${API_URL}/coursework/${item.Type}/${encodeURIComponent(item.CourseId)}/${encodeURIComponent(item.Id)}`,
+      { done },
+      { withCredentials: true },
+    )
+    if (destroyed) return
+    const list = item.Type === 'quiz' ? quizzes.value : assignments.value
+    const source = list.find(
+      (candidate) =>
+        String(candidate.Id) === String(item.Id) &&
+        String(candidate.CourseId) === String(item.CourseId),
+    )
+    if (source) source.Done = done
+    viewerRequest.then((userId) =>
+      recordCourseworkCompletion(userId, { key: item.key, title: item.Name }, done),
+    )
+    successMessage.value = done ? 'Marked as completed.' : 'Moved to To do.'
+  } catch (error) {
+    if (!destroyed)
+      actionError.value = messageOf(error, 'Could not update this item. Please try again.')
+  } finally {
+    if (!destroyed) pendingKeys.value = pendingKeys.value.filter((key) => key !== item.key)
   }
-  watch(() => [route.query.course, route.query.search], applyDashboardFilters)
-  onMounted(() => {
-    viewerRequest = axios.get(API_URL + '/me', { withCredentials: true, timeout: 10000 }).then(({ data }) => data.user?.id ?? null).catch(() => null)
-    if (route.query.new === '1') showForm.value = true
-    loadPlannerData()
-  })
+}
+
+onMounted(() => {
+  viewerRequest = axios
+    .get(`${API_URL}/me`, { withCredentials: true, timeout: 10000 })
+    .then(({ data }) => data.user?.id ?? null)
+    .catch(() => null)
+  loadPlannerData({ routeFilters: true })
+  clock = window.setInterval(() => {
+    now.value = new Date()
+  }, 60000)
+})
+onBeforeUnmount(() => {
+  destroyed = true
+  loadRequest++
+  window.clearInterval(clock)
+})
 </script>
 
 <template>
-	<div class="app assignments-app">
-		<PlannerNavigation active="/assignments" />
+  <div class="app assignments-app">
+    <PlannerNavigation active="/assignments" />
+    <main class="main assignments-page">
+      <div class="container-xxl assignments-container">
+        <PlannerNavigation active="/assignments" mobile />
+        <header class="header assignments-header">
+          <div>
+            <p class="eyebrow">ONE THING AT A TIME</p>
+            <h1>Assignments</h1>
+            <p>Know what's due. Focus on what's next.</p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :aria-expanded="showForm"
+            :disabled="saving"
+            @click="toggleForm"
+          >
+            <PlannerIcon v-if="!showForm" name="plus" />{{
+              showForm ? 'Close form' : 'Add assignment'
+            }}
+          </button>
+        </header>
+        <PlannerCompanion character="coral" message="One thing at a time. You've got this." />
+        <div
+          v-if="loadError"
+          class="alert alert-danger d-flex align-items-center justify-content-between gap-2"
+          role="alert"
+        >
+          <span>{{ loadError }}</span
+          ><button class="btn btn-sm btn-outline-danger" type="button" @click="loadPlannerData()">
+            Try again
+          </button>
+        </div>
+        <div v-if="actionError" class="alert alert-danger" role="alert">{{ actionError }}</div>
+        <p v-if="successMessage" class="assignment-notice" role="status">{{ successMessage }}</p>
 
-		<main class="main assignments-page">
-			<div class="container-xxl assignments-container">
-				<PlannerNavigation active="/assignments" mobile />
-			<header class="header assignments-header">
-				<div>
-					<p class="eyebrow">STAY ON TOP OF YOUR WORK</p>
-					<h1>Assignments</h1>
-					<p>See assignment and quiz deadlines across your courses.</p>
-				</div>
-				<button type="button" class="btn btn-primary" @click="toggleForm">
-					{{ showForm ? 'Close form' : '+ Add assignment' }}
-				</button>
-			</header>
-			<PlannerCompanion character="coral" message="One thing at a time. You've got this." />
+        <section
+          v-if="showForm"
+          class="assignment-form-card"
+          aria-labelledby="assignment-form-heading"
+        >
+          <div class="form-heading">
+            <h2 id="assignment-form-heading">
+              {{ editingAssignment ? 'Edit assignment' : 'Add an assignment' }}
+            </h2>
+            <p>Save your personal coursework alongside your course deadlines.</p>
+          </div>
+          <div v-if="formError" class="alert alert-danger" role="alert">{{ formError }}</div>
+          <p v-if="!loading && !courses.length" class="assignment-help">
+            No courses are available yet. Add coursework after your course list loads.
+          </p>
+          <form class="assignment-form" novalidate @submit.prevent="saveAssignment">
+            <label class="form-field form-wide" for="assignment-name"
+              >Assignment name<input
+                id="assignment-name"
+                ref="nameInput"
+                v-model="form.name"
+                class="form-control"
+                maxlength="160"
+                :disabled="saving"
+                placeholder="e.g. Project proposal"
+                required
+            /></label>
+            <label class="form-field" for="assignment-course"
+              >Course<select
+                id="assignment-course"
+                v-model="form.courseId"
+                class="form-select"
+                :disabled="saving || Boolean(editingAssignment)"
+                required
+              >
+                <option value="" disabled>Choose a course</option>
+                <option v-for="course in courses" :key="course.Id" :value="String(course.Id)">
+                  {{ course.Name }}
+                </option>
+              </select></label
+            >
+            <label class="form-field" for="assignment-due-date"
+              >Due date <span class="field-hint">optional · Singapore time</span
+              ><input
+                id="assignment-due-date"
+                v-model="form.dueDate"
+                class="form-control"
+                type="datetime-local"
+                :disabled="saving"
+            /></label>
+            <div class="form-actions form-wide">
+              <button
+                type="button"
+                class="btn btn-outline-secondary"
+                :disabled="saving"
+                @click="closeForm"
+              >
+                Cancel</button
+              ><button
+                type="submit"
+                class="btn btn-primary"
+                :disabled="saving || loading || !courses.length"
+              >
+                {{
+                  saving ? 'Saving…' : editingAssignment ? 'Update assignment' : 'Save assignment'
+                }}
+              </button>
+            </div>
+          </form>
+        </section>
 
-			<div v-if="loadError" class="alert alert-danger" role="alert">{{ loadError }}</div>
-			<div v-if="successMessage" class="alert alert-success" role="status">{{ successMessage }}</div>
-
-			<section v-if="showForm" class="card assignment-form-card">
-				<div class="card-body">
-					<div class="section-heading form-heading">
-						<div>
-							<p class="eyebrow">PERSONAL COURSE WORK</p>
-							<h2>{{ editingAssignment ? 'Edit assignment' : 'Add an assignment' }}</h2>
-						</div>
-						<span class="badge rounded-pill text-bg-primary">{{ editingAssignment ? 'Custom assignment' : 'Saved to project JSON' }}</span>
-					</div>
-
-					<div v-if="formError" class="alert alert-danger py-2" role="alert">{{ formError }}</div>
-
-					<form class="assignment-form row g-3 align-items-end" @submit.prevent="saveAssignment">
-						<div class="form-field assignment-name-field col-12">
-							<label for="assignment-name" class="form-label">Assignment name</label>
-							<input
-								id="assignment-name"
-								v-model="form.name"
-								class="form-control"
-								maxlength="160"
-								placeholder="e.g. Project proposal"
-								required
-							/>
-						</div>
-
-						<div class="form-field col-12 col-md-6 col-xl-4">
-							<label for="assignment-course" class="form-label">Course</label>
-							<select
-								id="assignment-course"
-								v-model="form.courseId"
-								class="form-select"
-								:disabled="Boolean(editingAssignment)"
-								required
-							>
-								<option disabled value="">Choose a course</option>
-								<option v-for="course in courses" :key="course.Id" :value="String(course.Id)">
-									{{ course.Name }}
-								</option>
-							</select>
-						</div>
-
-						<div class="form-field col-12 col-md-6 col-xl-4">
-							<label for="assignment-due-date" class="form-label">Due date <span>(optional)</span></label>
-							<input
-								id="assignment-due-date"
-								v-model="form.dueDate"
-								class="form-control"
-								type="datetime-local"
-							/>
-						</div>
-
-						<div class="form-actions col-12 d-flex justify-content-end gap-2">
-							<button type="button" class="btn btn-outline-secondary" @click="toggleForm">Cancel</button>
-							<button type="submit" class="btn btn-primary" :disabled="saving">
-								{{ saving ? 'Saving…' : editingAssignment ? 'Update assignment' : 'Save assignment' }}
-							</button>
-						</div>
-					</form>
-				</div>
-			</section>
-
-			<section class="row g-2 g-sm-3 mb-3 mb-sm-4" aria-label="Course work summary">
-				<div class="col-4">
-					<div class="overview-card h-100 flex-column flex-sm-row align-items-center text-center text-sm-start">
-						<span class="overview-icon assignment-icon">📝</span>
-						<div>
-							<strong>{{ filteredAssignments.length }}</strong
-							><span>Assignments</span>
-						</div>
-					</div>
-				</div>
-				<div class="col-4">
-					<div class="overview-card h-100 flex-column flex-sm-row align-items-center text-center text-sm-start">
-						<span class="overview-icon quiz-icon">✏️</span>
-						<div>
-							<strong>{{ filteredQuizzes.length }}</strong
-							><span>Quizzes</span>
-						</div>
-					</div>
-				</div>
-				<div class="col-4">
-					<div class="overview-card h-100 flex-column flex-sm-row align-items-center text-center text-sm-start">
-						<span class="overview-icon calendar-icon">📅</span>
-						<div>
-							<strong>{{ monthEventCount }}</strong
-							><span>Events this month</span>
-						</div>
-					</div>
-				</div>
-			</section>
-
-			<section class="card planner-card">
-				<div class="card-body">
-					<div class="planner-toolbar">
-						<h2 class="calendar-view-title">Assignments and quizzes</h2>
-						<div class="planner-toolbar-controls">
-							<label class="course-filter">
-								<span>Course</span>
-								<select v-model="selectedCourseId" class="form-select form-select-sm">
-									<option value="all">All courses</option>
-									<option v-for="course in courses" :key="course.Id" :value="String(course.Id)">
-										{{ course.Name }}
-									</option>
-								</select>
-							</label>
-							<label class="search-filter">
-								<span class="visually-hidden">Search coursework</span>
-								<input v-model="searchQuery" class="form-control form-control-sm" type="search" placeholder="Search assignments or courses" />
-							</label>
-						</div>
-					</div>
-
-					<div v-if="loading" class="loading-state" role="status">
-						<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-						Loading courses and deadlines…
-					</div>
-
-					<template v-else>
-						<div class="assignment-view-filters">
-							<div class="view-switch" role="group" aria-label="Choose coursework view">
-								<button type="button" :class="{ active: activeView === 'calendar' }" :aria-pressed="activeView === 'calendar'" @click="activeView = 'calendar'">Calendar</button>
-								<button type="button" :class="{ active: activeView === 'list' }" :aria-pressed="activeView === 'list'" @click="openCourseList">Course list</button>
-							</div>
-							<div class="filter-group" role="group" aria-label="Filter by item type">
-								<button v-for="option in typeFilterOptions" :key="option.value" type="button" :class="{ active: typeFilter === option.value }" @click="typeFilter = option.value">{{ option.label }}</button>
-							</div>
-							<div class="filter-group" role="group" aria-label="Filter by status">
-								<button v-for="option in statusFilterOptions" :key="option.value" type="button" :class="{ active: statusFilter === option.value }" @click="statusFilter = option.value">{{ option.label }}</button>
-							</div>
-							<button v-if="hasActiveFilters" type="button" class="btn btn-sm btn-link clear-filters" @click="clearFilters">Clear filters</button>
-						</div>
-						<div v-if="actionError" class="alert alert-danger py-2" role="alert">{{ actionError }}</div>
-						<div v-if="activeView === 'calendar'">
-						<div class="calendar-toolbar">
-							<div class="calendar-month-title">
-								<h2>{{ monthTitle }}</h2>
-								<span>{{ monthEventCount }} scheduled items</span>
-							</div>
-							<div class="calendar-controls btn-group" role="group" aria-label="Calendar navigation">
-								<button
-									type="button"
-									class="btn btn-outline-secondary"
-									aria-label="Previous month"
-									@click="changeMonth(-1)"
-								>
-									‹
-								</button>
-								<button type="button" class="btn btn-outline-secondary" @click="goToToday">Today</button>
-								<button
-									type="button"
-									class="btn btn-outline-secondary"
-									aria-label="Next month"
-									@click="changeMonth(1)"
-								>
-									›
-								</button>
-							</div>
-						</div>
-
-						<div class="calendar-scroll">
-							<div class="calendar-weekdays" aria-hidden="true">
-								<span v-for="weekday in weekdayNames" :key="weekday">{{ weekday }}</span>
-							</div>
-							<div class="calendar-grid">
-								<button
-									v-for="day in calendarDays"
-									:key="day.key"
-									type="button"
-									class="calendar-day"
-									:class="{
-										'outside-month': !day.inCurrentMonth,
-										today: day.isToday,
-										selected: day.isSelected,
-									}"
-									:aria-label="`${formatDate(day.key, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}, ${day.events.length} items`"
-									@click="selectDay(day)"
-								>
-									<span class="day-number">{{ day.dayNumber }}</span>
-									<span class="day-event-list">
-										<span
-											v-for="event in day.events.slice(0, 3)"
-											:key="`${event.Type}-${event.CourseId}-${event.Id}`"
-											class="calendar-event"
-											:class="[event.Type, eventStatus(event), urgencyClass(event)]"
-											:title="eventUrgency(event) ? `${event.Name} · ${eventUrgency(event).label}` : event.Name"
-										>
-											<span class="event-dot" aria-hidden="true"></span>
-											<span class="event-name">{{ event.Name }}</span>
-											<span v-if="eventUrgency(event)" class="calendar-urgency">{{ eventUrgency(event).label }}</span>
-										</span>
-										<span v-if="day.events.length > 3" class="more-events"
-											>+{{ day.events.length - 3 }} more</span
-										>
-									</span>
-								</button>
-							</div>
-						</div>
-
-						<div class="calendar-legend">
-							<span><i class="legend-dot assignment-dot"></i>Assignment</span>
-							<span><i class="legend-dot quiz-dot"></i>Quiz</span>
-							<span><i class="legend-dot overdue-dot"></i>Overdue</span>
-							<span><i class="legend-dot completed-dot"></i>Completed</span>
-						</div>
-						<div v-if="!calendarEvents.length" class="empty-state compact-empty">
-							<span>🔎</span>
-							<h2>{{ hasActiveFilters ? 'No matching coursework' : 'No assignments or quizzes yet' }}</h2>
-							<p>{{ hasActiveFilters ? 'Try changing your search or filters.' : 'Add a personal assignment to start planning your deadlines.' }}</p>
-							<button v-if="hasActiveFilters" type="button" class="btn btn-sm btn-outline-primary" @click="clearFilters">Clear filters</button>
-							<button v-else type="button" class="btn btn-sm btn-primary" @click="toggleForm">Add assignment</button>
-						</div>
-
-						<section v-if="selectedDateKey" class="selected-date-panel">
-							<h3>
-								{{ formatDate(selectedDateKey, { weekday: 'long', day: 'numeric', month: 'long' }) }}
-							</h3>
-							<p v-if="!selectedDateEvents.length" class="text-secondary mb-0">
-								Nothing scheduled for this day.
-							</p>
-							<div
-								v-for="event in selectedDateEvents"
-								:key="`${event.Type}-${event.CourseId}-${event.Id}`"
-								class="event-detail"
-								:class="urgencyClass(event)"
-							>
-								<span class="event-type-icon" :class="event.Type">{{
-									event.Type === 'quiz' ? '✏️' : '📝'
-								}}</span>
-								<div>
-									<strong>{{ event.Name }}</strong>
-									<span
-										>{{ event.CourseName }}<template v-if="formatTime(event.EventDate)"> · {{ formatTime(event.EventDate) }}</template></span
-									>
-									<span v-if="!eventUrgency(event)" class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
-									<div v-if="eventUrgency(event)" class="coursework-urgency"><TaskUrgencyBadge :urgency="eventUrgency(event)" /></div>
-									<span v-else class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
-								</div>
-								<span
-									class="badge rounded-pill"
-									:class="event.Type === 'quiz' ? 'text-bg-info' : 'text-bg-primary'"
-								>
-									{{ event.Type === 'quiz' ? 'Quiz' : 'Assignment' }}
-								</span>
-								<label class="completion-action">
-									<input type="checkbox" :checked="event.Done" :aria-label="`Mark ${event.Name} completed`" @change="toggleCompleted(event)" />
-									Completed
-								</label>
-								<button v-if="event.Type === 'assignment' && event.IsCustom" type="button" class="btn btn-sm btn-outline-secondary" @click="startEditingAssignment(event)">Edit</button>
-							</div>
-						</section>
-
-						<section v-if="undatedEvents.length" class="undated-section">
-							<div class="section-heading">
-								<div>
-									<h3>Unscheduled</h3>
-									<p>These items don’t have a date in the source data.</p>
-								</div>
-								<span class="badge rounded-pill text-bg-secondary">{{ undatedEvents.length }}</span>
-							</div>
-							<div class="undated-list">
-								<div
-									v-for="event in undatedEvents"
-									:key="`${event.Type}-${event.CourseId}-${event.Id}`"
-									class="undated-item"
-								>
-									<span class="event-type-icon" :class="event.Type">{{
-										event.Type === 'quiz' ? '✏️' : '📝'
-									}}</span>
-									<div>
-										<strong>{{ event.Name }}</strong
-										><span>{{ event.CourseName }}</span>
-									</div>
-									<span
-										class="badge rounded-pill"
-										:class="event.Type === 'quiz' ? 'text-bg-info' : 'text-bg-primary'"
-									>
-										{{ event.Type === 'quiz' ? 'Quiz' : 'Assignment' }}
-									</span>
-								</div>
-							</div>
-						</section>
-						</div>
-
-						<section v-else class="course-group-list">
-							<div v-if="!calendarEvents.length" class="empty-state">
-								<span>🔎</span>
-								<h2>{{ hasActiveFilters ? 'No matching coursework' : 'No assignments or quizzes yet' }}</h2>
-								<p>{{ hasActiveFilters ? 'Try changing your search or filters.' : 'Add a personal assignment to start planning your deadlines.' }}</p>
-								<button v-if="hasActiveFilters" type="button" class="btn btn-sm btn-outline-primary" @click="clearFilters">Clear filters</button>
-								<button v-else type="button" class="btn btn-sm btn-primary" @click="toggleForm">Add assignment</button>
-							</div>
-							<article v-for="group in groupedEvents" :key="group.id" class="course-group">
-								<button type="button" class="course-group-heading" :aria-expanded="!isCourseCollapsed(group.id)" @click="toggleCourse(group.id)">
-									<span><strong>{{ group.name }}</strong><small>{{ group.events.length }} item{{ group.events.length === 1 ? '' : 's' }}</small></span>
-									<span class="group-chevron" aria-hidden="true">{{ isCourseCollapsed(group.id) ? '＋' : '−' }}</span>
-								</button>
-								<div v-if="!isCourseCollapsed(group.id)" class="course-group-items">
-									<article v-for="event in group.events" :key="`${event.Type}-${event.CourseId}-${event.Id}`" class="coursework-card" :class="[eventStatus(event), urgencyClass(event)]">
-										<span class="event-type-icon" :class="event.Type">{{ event.Type === 'quiz' ? '✏️' : '📝' }}</span>
-										<div class="coursework-card-main">
-											<strong>{{ event.Name }}</strong>
-											<span>{{ event.CourseName }}<template v-if="formatTime(event.EventDate)"> · {{ formatTime(event.EventDate) }}</template></span>
-											<span v-if="!eventUrgency(event)" class="event-date-label" :class="eventStatus(event)">{{ friendlyEventDate(event) }}</span>
-											<div v-if="eventUrgency(event)" class="coursework-urgency"><TaskUrgencyBadge :urgency="eventUrgency(event)" /></div>
-											<span v-else class="coursework-status" :class="eventStatus(event)">{{ eventStatusLabel(event) }}</span>
-										</div>
-										<label class="completion-action"><input type="checkbox" :checked="event.Done" :aria-label="`Mark ${event.Name} completed`" @change="toggleCompleted(event)" /> Completed</label>
-										<button v-if="event.Type === 'assignment' && event.IsCustom" type="button" class="btn btn-sm btn-outline-secondary" @click="startEditingAssignment(event)">Edit</button>
-									</article>
-								</div>
-							</article>
-						</section>
-					</template>
-				</div>
-			</section>
-			</div>
-		</main>
-	</div>
+        <p v-if="!loading && !loadError" class="assignment-summary" aria-label="Coursework summary">
+          <span class="summary-overdue"
+            ><strong>{{ summary.overdue }}</strong> overdue</span
+          ><span
+            ><strong>{{ summary.today }}</strong> due today</span
+          ><span
+            ><strong>{{ summary.upcoming }}</strong> in the next 7 days</span
+          >
+        </p>
+        <div v-if="loading" class="assignment-loading" role="status">
+          <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Loading your
+          coursework…
+        </div>
+        <div v-else-if="!loadError" class="assignment-layout">
+          <div class="assignment-work">
+            <div class="assignment-tabs" role="group" aria-label="Completion status">
+              <button
+                type="button"
+                :aria-pressed="statusFilter !== 'completed'"
+                @click="statusFilter = 'todo'"
+              >
+                To do <span>{{ pendingCount }}</span></button
+              ><button
+                type="button"
+                :aria-pressed="statusFilter === 'completed'"
+                @click="statusFilter = 'completed'"
+              >
+                Completed <span>{{ completedCount }}</span>
+              </button>
+            </div>
+            <div class="assignment-filters">
+              <label
+                ><span class="visually-hidden">Filter by course</span
+                ><select v-model="selectedCourseId" class="form-select form-select-sm">
+                  <option value="all">All courses</option>
+                  <option v-for="course in courses" :key="course.Id" :value="String(course.Id)">
+                    {{ course.Name }}
+                  </option>
+                </select></label
+              >
+              <label
+                ><span class="visually-hidden">Filter by task type</span
+                ><select v-model="typeFilter" class="form-select form-select-sm">
+                  <option value="all">Assignments &amp; quizzes</option>
+                  <option value="assignment">Assignments only</option>
+                  <option value="quiz">Quizzes only</option>
+                </select></label
+              >
+              <label class="assignment-search"
+                ><span class="visually-hidden">Search coursework</span
+                ><input
+                  v-model="searchQuery"
+                  class="form-control form-control-sm"
+                  type="search"
+                  placeholder="Search coursework"
+              /></label>
+              <button
+                v-if="hasFilters"
+                type="button"
+                class="btn btn-sm btn-link"
+                @click="clearFilters"
+              >
+                Clear filters
+              </button>
+            </div>
+            <div v-if="!filteredTasks.length" class="assignment-empty">
+              <PlannerIcon name="check" />
+              <h2>{{ tasks.length ? 'No tasks in this view' : 'No coursework yet' }}</h2>
+              <p>
+                {{
+                  tasks.length
+                    ? 'Try another course, task type, or completion tab.'
+                    : 'Your assignments and quizzes will appear here. You can also add a personal assignment.'
+                }}
+              </p>
+              <button
+                v-if="hasFilters"
+                type="button"
+                class="btn btn-sm btn-outline-primary"
+                @click="clearFilters"
+              >
+                Clear filters</button
+              ><button
+                v-else-if="!tasks.length"
+                type="button"
+                class="btn btn-sm btn-primary"
+                @click="toggleForm"
+              >
+                Add assignment
+              </button>
+            </div>
+            <section
+              v-for="group in taskGroups"
+              :key="group.label"
+              class="deadline-group"
+              :data-group="group.label"
+              :aria-label="group.label"
+            >
+              <div class="deadline-group-heading">
+                <h2>{{ group.label }}</h2>
+                <span>{{ group.items.length }}</span>
+              </div>
+              <div class="deadline-rows">
+                <article
+                  v-for="item in group.items"
+                  :key="item.key"
+                  class="coursework-card"
+                  :class="{ 'is-selected': selectedKey === item.key, 'is-complete': item.Done }"
+                >
+                  <input
+                    class="task-checkbox"
+                    type="checkbox"
+                    :checked="item.Done"
+                    :disabled="pendingKeys.includes(item.key)"
+                    :aria-label="`Mark ${item.Name} completed`"
+                    @change="toggleCompleted(item, $event)"
+                  />
+                  <button
+                    type="button"
+                    class="task-open"
+                    :aria-label="`View ${item.Name}`"
+                    :aria-pressed="selectedKey === item.key"
+                    @click="selectTask(item)"
+                  >
+                    <strong>{{ item.Name }}</strong
+                    ><span
+                      >{{ item.CourseName }}
+                      <span>· {{ item.Type === 'quiz' ? 'Quiz' : 'Assignment' }}</span></span
+                    >
+                  </button>
+                  <div class="task-due">
+                    <time v-if="validDate(item.DueDate)" :datetime="item.DueDate"
+                      >{{ formatDate(item.DueDate) }} · {{ formatTime(item.DueDate) }}</time
+                    ><span v-else class="undated-label">No due date</span
+                    ><span v-if="item.Done" class="task-status task-status--done">Completed</span
+                    ><TaskUrgencyBadge v-else-if="urgency(item)" :urgency="urgency(item)" /><span
+                      v-else
+                      class="task-status"
+                      >{{
+                        validDate(item.DueDate)
+                          ? 'Upcoming'
+                          : item.Type === 'quiz' && validDate(item.StartDate)
+                            ? 'Quiz available'
+                            : 'Unscheduled'
+                      }}</span
+                    >
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+          <aside
+            v-if="selectedTask"
+            class="assignment-details"
+            aria-label="Selected assignment details"
+          >
+            <p class="details-eyebrow">
+              {{ selectedTask.Type === 'quiz' ? 'QUIZ DETAILS' : 'ASSIGNMENT DETAILS' }}
+            </p>
+            <span class="details-icon"><PlannerIcon name="check" /></span>
+            <h2 ref="detailsHeading" tabindex="-1">{{ selectedTask.Name }}</h2>
+            <p class="details-course">{{ selectedTask.CourseName }}</p>
+            <span v-if="selectedTask.Done" class="task-status task-status--done">Completed</span
+            ><TaskUrgencyBadge v-else-if="urgency(selectedTask)" :urgency="urgency(selectedTask)" />
+            <dl class="details-meta">
+              <div>
+                <dt><PlannerIcon name="calendar" />Due</dt>
+                <dd>
+                  {{ formatDate(selectedTask.DueDate)
+                  }}<template v-if="validDate(selectedTask.DueDate)"
+                    ><br />{{ formatTime(selectedTask.DueDate) }} · Singapore time</template
+                  >
+                </dd>
+              </div>
+              <div v-if="selectedTask.Type === 'quiz' && validDate(selectedTask.StartDate)">
+                <dt>Available from</dt>
+                <dd>
+                  {{ formatDate(selectedTask.StartDate) }} ·
+                  {{ formatTime(selectedTask.StartDate) }}
+                </dd>
+              </div>
+              <div>
+                <dt>Type</dt>
+                <dd>
+                  {{
+                    selectedTask.Type === 'quiz'
+                      ? 'Quiz'
+                      : selectedTask.IsCustom
+                        ? 'Personal assignment'
+                        : 'Course assignment'
+                  }}
+                </dd>
+              </div>
+            </dl>
+            <div class="details-description">
+              <h3>What to do</h3>
+              <p>
+                {{
+                  selectedTask.Description ||
+                  selectedTask.Instructions ||
+                  (selectedTask.Type === 'quiz'
+                    ? 'Review the quiz requirements in your course materials before its due date.'
+                    : selectedTask.IsCustom
+                      ? 'Your personal coursework reminder. Edit its name or due date as your plans change.'
+                      : 'Check your course materials for the full requirements and submission instructions.')
+                }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="btn btn-primary details-complete"
+              :disabled="pendingKeys.includes(selectedTask.key)"
+              @click="toggleCompleted(selectedTask)"
+            >
+              {{
+                pendingKeys.includes(selectedTask.key)
+                  ? 'Saving…'
+                  : selectedTask.Done
+                    ? 'Mark as to do'
+                    : 'Mark complete'
+              }}
+            </button>
+            <button
+              v-if="selectedTask.Type === 'assignment' && selectedTask.IsCustom"
+              type="button"
+              class="btn btn-outline-secondary details-edit"
+              :disabled="saving"
+              @click="startEditing(selectedTask)"
+            >
+              Edit assignment
+            </button>
+            <RouterLink
+              v-if="
+                validDate(selectedTask.DueDate || selectedTask.EventDate || selectedTask.StartDate)
+              "
+              class="details-calendar-link"
+              :to="{ path: '/calendar', query: { event: selectedTask.key } }"
+              ><PlannerIcon name="calendar" />View in Calendar</RouterLink
+            >
+            <p class="details-help">Select another task to view its details.</p>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
 </template>
 
 <style scoped>
-.assignments-app {
-	background: var(--bg);
-}
-
-.assignments-page {
-	max-width: 1600px;
-	margin: 0 auto;
-	width: 100%;
-}
-.assignments-header > div > p:last-child {
-	margin-top: 0.35rem;
-}
-.form-heading {
-	margin-bottom: 1.25rem;
-}
-.form-field {
-	min-width: 0;
-}
-.form-label span {
-	color: var(--muted);
-	font-weight: 400;
-}
-.form-actions {
-	padding-top: 0.25rem;
-}
-.planner-toolbar,
-.calendar-toolbar,
-.section-heading {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 1rem;
-}
-.planner-toolbar {
-	flex-wrap: wrap;
-	padding-bottom: 1rem;
-	border-bottom: 1px solid var(--border);
-}
-.planner-toolbar-controls {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	flex-wrap: wrap;
-	gap: 0.75rem;
-}
-.calendar-view-title {
-	margin: 0;
-	font-size: 1rem;
-	font-weight: 700;
-}
-.course-filter {
-	display: flex;
-	align-items: center;
-	gap: 0.6rem;
-	color: var(--muted);
-	font-size: 0.8rem;
-	font-weight: 650;
-}
-.course-filter select {
-	min-width: 190px;
-	max-width: min(42vw, 360px);
-}
-.search-filter input {
-	min-width: min(280px, 40vw);
-}
-.assignment-view-filters {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 0.65rem;
-	padding: 1rem 0 0.25rem;
-}
-.view-switch,
-.filter-group {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.2rem;
-	padding: 0.2rem;
-	border: 1px solid var(--border);
-	border-radius: 0.75rem;
-	background: var(--surface-subtle);
-}
-.view-switch button,
-.filter-group button {
-	padding: 0.38rem 0.7rem;
-	border: 0;
-	border-radius: 0.55rem;
-	background: transparent;
-	color: var(--muted);
-	font-size: 0.76rem;
-	font-weight: 650;
-	white-space: nowrap;
-}
-.view-switch button.active,
-.filter-group button.active {
-	background: #fff;
-	box-shadow: 0 1px 4px rgba(33, 42, 92, 0.12);
-	color: var(--brand);
-}
-.clear-filters {
-	text-decoration: none;
-}
-.loading-state {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 0.75rem;
-	min-height: 240px;
-	color: var(--muted);
-}
-.calendar-toolbar {
-	padding: 1.25rem 0 1rem;
-}
-.calendar-month-title h2 {
-	margin: 0;
-	font-size: 1.25rem;
-	font-weight: 750;
-}
-.calendar-month-title span {
-	color: var(--muted);
-	font-size: 0.8rem;
-}
-.calendar-scroll {
-	overflow-x: auto;
-}
-.calendar-weekdays,
-.calendar-grid {
-	display: grid;
-	grid-template-columns: repeat(7, minmax(0, 1fr));
-	min-width: 700px;
-}
-.calendar-weekdays {
-	border: 1px solid var(--border);
-	border-bottom: 0;
-	border-radius: 0.8rem 0.8rem 0 0;
-	background: var(--surface-subtle);
-}
-.calendar-weekdays span {
-	padding: 0.7rem 0.8rem;
-	color: var(--muted);
-	font-size: 0.72rem;
-	font-weight: 750;
-	letter-spacing: 0.04em;
-	text-align: left;
-	text-transform: uppercase;
-}
-.calendar-grid {
-	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: 0 0 0.8rem 0.8rem;
-}
-.calendar-day {
-	display: block;
-	min-width: 0;
-	min-height: 118px;
-	padding: 0.55rem;
-	border: 0;
-	border-top: 1px solid var(--border);
-	border-right: 1px solid var(--border);
-	background: #fff;
-	color: var(--ink);
-	text-align: left;
-	transition: background-color 0.15s ease;
-}
-.calendar-day:nth-child(7n) {
-	border-right: 0;
-}
-.calendar-day:hover,
-.calendar-day.selected {
-	background: var(--brand-soft);
-}
-.calendar-day.outside-month {
-	background: var(--surface-subtle);
-	color: var(--muted);
-}
-.calendar-day.today .day-number {
-	color: #fff;
-	background: var(--brand);
-}
-.calendar-day.selected {
-	box-shadow: inset 0 0 0 2px var(--brand);
-}
-.day-number {
-	display: grid;
-	width: 1.75rem;
-	height: 1.75rem;
-	place-items: center;
-	border-radius: 50%;
-	font-size: 0.8rem;
-	font-weight: 700;
-}
-.day-event-list {
-	display: grid;
-	gap: 0.25rem;
-	margin-top: 0.25rem;
-}
-.calendar-event {
-	display: flex;
-	align-items: center;
-	gap: 0.35rem;
-	min-width: 0;
-	padding: 0.2rem 0.35rem;
-	border-radius: 0.35rem;
-	font-size: 0.68rem;
-	line-height: 1.2;
-}
-.calendar-event.assignment {
-	background: var(--brand-soft);
-	color: var(--brand);
-}
-.calendar-event.quiz {
-	background: #e9f5ff;
-	color: #21659a;
-}
-.calendar-event.overdue {
-	background: #fff0f0;
-	color: #a43f49;
-}
-.calendar-event.completed {
-	background: #edf7ef;
-	color: #3c7651;
-}
-.calendar-event.completed .event-name {
-	text-decoration: line-through;
-}
-.event-dot,
-.legend-dot {
-	width: 0.42rem;
-	height: 0.42rem;
-	flex: 0 0 auto;
-	border-radius: 50%;
-	background: currentColor;
-}
-.event-name {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-.more-events {
-	padding-left: 0.35rem;
-	color: var(--muted);
-	font-size: 0.65rem;
-}
-.calendar-legend {
-	display: flex;
-	gap: 1rem;
-	padding: 0.85rem 0.15rem 0;
-	color: var(--muted);
-	font-size: 0.75rem;
-}
-.calendar-legend span {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.4rem;
-}
-.assignment-dot {
-	background: var(--brand);
-}
-.quiz-dot {
-	background: #45a1dc;
-}
-.selected-date-panel,
-.undated-section {
-	margin-top: 1.35rem;
-	padding-top: 1.1rem;
-	border-top: 1px solid var(--border);
-}
-.event-date-label {
-	width: fit-content;
-	color: #52716a !important;
-	font-weight: 650;
-}
-.event-date-label.overdue {
-	color: #a43f49 !important;
-}
-.event-date-label.completed {
-	color: #3c7651 !important;
-}
-.event-date-label.past,
-.event-date-label.undated {
-	color: var(--muted) !important;
-}
-.coursework-status {
-	display: inline-flex;
-	width: fit-content;
-	align-items: center;
-	padding: 0.14rem 0.48rem;
-	border-radius: 99px;
-	background: var(--brand-soft);
-	color: var(--brand);
-	font-size: 0.66rem;
-	font-weight: 750;
-}
-.coursework-status.overdue {
-	background: #fff0f0;
-	color: #a43f49;
-}
-.coursework-status.completed {
-	background: #eaf6ed;
-	color: #3c7651;
-}
-.coursework-status.past,
-.coursework-status.undated {
-	background: var(--surface-subtle);
-	color: var(--muted);
-}
-.completion-action {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.4rem;
-	color: var(--muted);
-	font-size: 0.75rem;
-	white-space: nowrap;
-}
-.completion-action input {
-	width: 1rem;
-	height: 1rem;
-	accent-color: var(--brand);
-}
-.course-group-list {
-	display: grid;
-	gap: 0.85rem;
-	padding-top: 1rem;
-}
-.course-group {
-	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: 0.85rem;
-	background: #fff;
-}
-.course-group-heading {
-	display: flex;
-	width: 100%;
-	align-items: center;
-	justify-content: space-between;
-	gap: 1rem;
-	padding: 0.9rem 1rem;
-	border: 0;
-	background: var(--surface-subtle);
-	color: var(--ink);
-	text-align: left;
-}
-.course-group-heading > span:first-child {
-	display: grid;
-	gap: 0.18rem;
-	min-width: 0;
-}
-.course-group-heading strong {
-	overflow: hidden;
-	font-size: 0.9rem;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-.course-group-heading small {
-	color: var(--muted);
-	font-size: 0.72rem;
-}
-.group-chevron {
-	color: var(--brand);
-	font-size: 1.2rem;
-}
-.course-group-items {
-	padding: 0 0.85rem;
+.assignments-container {
+  max-width: 1440px;
+}
+.assignments-header .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.assignment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 0 0 26px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.assignment-summary strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+.assignment-summary .summary-overdue,
+.assignment-summary .summary-overdue strong {
+  color: var(--red);
+}
+.assignment-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 285px;
+  gap: 24px;
+  align-items: start;
+}
+.assignment-work {
+  min-width: 0;
+}
+.assignment-tabs {
+  display: flex;
+  gap: 22px;
+  border-bottom: 1px solid var(--border);
+  width: fit-content;
+  margin-bottom: 17px;
+}
+.assignment-tabs button {
+  padding: 8px 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.assignment-tabs button[aria-pressed='true'] {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+.assignment-tabs button span {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-left: 5px;
+  background: var(--brand-soft);
+  border-radius: 6px;
+  color: var(--brand);
+  font-size: 0.66rem;
+}
+.assignment-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 25px;
+}
+.assignment-filters label {
+  min-width: 0;
+  max-width: 100%;
+}
+.assignment-filters :is(input, select) {
+  font-size: 0.76rem;
+  min-height: 35px;
+}
+.assignment-filters .assignment-search {
+  flex: 1 1 155px;
+}
+.deadline-group {
+  margin: 0 0 24px;
+}
+.deadline-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.app .deadline-group-heading h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.deadline-group-heading > span {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.deadline-group[data-group='Overdue'] h2 {
+  color: var(--red);
+}
+.deadline-rows {
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  overflow: hidden;
+  background: var(--surface);
 }
 .coursework-card {
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 0.75rem;
-	padding: 0.85rem 0.2rem;
-	border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 19px 17px;
+  border-bottom: 1px solid var(--border);
 }
 .coursework-card:last-child {
-	border-bottom: 0;
+  border-bottom: 0;
 }
-.coursework-card.overdue {
-	border-left: 3px solid #cf6670;
-	padding-left: 0.65rem;
+.coursework-card.is-selected {
+  background: var(--brand-soft);
 }
-.coursework-card.completed .coursework-card-main > strong {
-	color: var(--muted);
-	text-decoration: line-through;
+.task-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
 }
-.coursework-card-main {
-	display: grid;
-	flex: 1 1 220px;
-	gap: 0.2rem;
-	min-width: 0;
+.task-open {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  color: var(--ink);
+  min-width: 0;
 }
-.coursework-card-main > strong {
-	overflow-wrap: anywhere;
-	font-size: 0.88rem;
+.task-open strong {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
-.coursework-card-main > span {
-	color: var(--muted);
-	font-size: 0.76rem;
+.task-open > span {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.71rem;
+  line-height: 1.6;
 }
-.coursework-card-main > .event-date-label {
-	font-weight: 650;
+.is-complete .task-open strong {
+  color: var(--muted);
 }
-.compact-empty {
-	padding: 1.5rem 1rem;
+.task-due {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: flex-end;
+  min-width: 85px;
 }
-.overdue-dot {
-	background: #c85b65;
+.task-due :is(time, .undated-label) {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.6;
+  text-align: right;
 }
-.completed-dot {
-	background: #4d9364;
+.task-status {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--brand);
+  background: var(--brand-soft);
+  font-size: 0.67rem;
+  font-weight: 650;
+  line-height: 1.5;
 }
-.selected-date-panel h3,
-.undated-section h3 {
-	margin: 0;
-	font-size: 0.95rem;
-	font-weight: 750;
+.task-status--done {
+  color: #337354;
+  background: #e4f3eb;
 }
-.event-detail,
-.undated-item {
-	display: flex;
-	align-items: center;
-	gap: 0.8rem;
-	padding: 0.75rem 0;
-	border-bottom: 1px solid var(--border);
+.assignment-details {
+  scroll-margin-top: calc(var(--mobile-nav-height, 0px) + 20px);
+  background: var(--surface);
+  padding: 25px 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  min-width: 0;
 }
-.event-detail > div,
-.undated-item > div {
-	display: grid;
-	flex: 1;
-	gap: 0.15rem;
-	min-width: 0;
+.details-eyebrow {
+  color: var(--muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  margin: 0 0 22px;
 }
-.event-detail > div span,
-.undated-item > div span {
-	color: var(--muted);
-	font-size: 0.77rem;
+.details-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  background: var(--brand-soft);
+  border-radius: 12px;
+  margin-bottom: 17px;
 }
-.event-type-icon {
-	display: grid;
-	width: 2.25rem;
-	height: 2.25rem;
-	flex: 0 0 auto;
-	place-items: center;
-	border-radius: 0.7rem;
-	background: var(--brand-soft);
+.app .assignment-details h2 {
+  font-size: 1.16rem;
+  line-height: 1.45;
+  margin: 0 0 8px;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
 }
-.event-type-icon.quiz {
-	background: #e9f5ff;
+.assignment-details h2:focus {
+  outline: none;
 }
-.undated-section .section-heading > div > p {
-	margin: 0.25rem 0 0;
-	color: var(--muted);
-	font-size: 0.78rem;
+.assignment-details h2:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
 }
-.event-detail strong,
-.undated-item strong {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+.details-course {
+  color: var(--muted);
+  margin: 0 0 16px;
+  font-size: 0.77rem;
+  line-height: 1.7;
 }
-.undated-label {
-	flex: 0 0 auto;
-	color: var(--muted);
-	font-size: 0.72rem;
+.details-meta {
+  margin: 20px 0;
 }
-.empty-state {
-	display: grid;
-	justify-items: center;
-	padding: 4rem 1rem;
-	text-align: center;
+.details-meta > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 7px;
+  margin: 12px 0;
+  font-size: 0.73rem;
+  line-height: 1.7;
 }
-.empty-state > span {
-	font-size: 2rem;
+.details-meta dt {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  color: var(--muted);
+  font-weight: 500;
 }
-.empty-state h2 {
-	margin: 0.75rem 0 0.25rem;
-	font-size: 1.1rem;
+.details-meta dt .planner-icon {
+  width: 15px;
+  height: 15px;
+  margin-top: 3px;
 }
-.empty-state p {
-	margin: 0;
-	color: var(--muted);
-	font-size: 0.88rem;
+.details-meta dd {
+  margin: 0;
+  color: var(--ink);
 }
-
-.urgency-overdue,
-.urgency-urgent {
-	--deadline-accent: var(--red);
-	--deadline-soft: #fff5f5;
+.details-description {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
 }
-.urgency-soon {
-	--deadline-accent: #925517;
-	--deadline-soft: #fffaf0;
+.app .details-description h3 {
+  margin: 0 0 8px;
+  font-size: 0.77rem;
 }
-.urgency-week {
-	--deadline-accent: var(--brand);
-	--deadline-soft: #faf8fe;
+.details-description p {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.85;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
-.calendar-event:is(.urgency-overdue, .urgency-urgent, .urgency-soon, .urgency-week) {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
-	row-gap: 0.15rem;
-	box-shadow: inset 3px 0 var(--deadline-accent);
-	padding-left: 0.45rem;
+.details-complete,
+.details-edit {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  font-size: 0.77rem;
 }
-.calendar-urgency {
-	grid-column: 1 / -1;
-	color: var(--deadline-accent);
-	font-weight: 700;
+.details-edit {
+  margin-top: 9px;
 }
-:is(.event-detail, .coursework-card):is(.urgency-overdue, .urgency-urgent, .urgency-soon, .urgency-week) {
-	border-left: 3px solid var(--deadline-accent);
-	padding-left: 0.7rem;
-	background: var(--deadline-soft);
+.details-calendar-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 16px;
+  font-size: 0.74rem;
+  color: var(--brand);
+  text-decoration: none;
 }
-.coursework-urgency {
-	display: flex;
-	align-items: center;
-	padding-top: 0.1rem;
+.details-calendar-link:hover {
+  text-decoration: underline;
 }
-.coursework-urgency :deep(.task-urgency-badge) {
-	color: var(--deadline-accent);
-	font-size: 0.72rem;
+.details-calendar-link .planner-icon {
+  width: 17px;
+  height: 17px;
 }
-
-@media (max-width: 767.98px) {
-	.assignments-page {
-	}
-	.overview-card {
-		padding: 0.75rem 0.9rem;
-	}
-	.course-filter {
-		align-items: flex-start;
-		flex-direction: column;
-		width: 100%;
-	}
-	.course-filter select {
-		max-width: none;
-		width: 100%;
-	}
-	.calendar-toolbar {
-		align-items: flex-start;
-		flex-direction: column;
-	}
-	.planner-toolbar {
-		align-items: stretch;
-	}
-	.planner-toolbar-controls {
-		align-items: stretch;
-		flex-direction: column;
-		width: 100%;
-	}
-	.search-filter,
-	.search-filter input {
-		width: 100%;
-		min-width: 0;
-	}
-	.assignment-view-filters {
-		align-items: flex-start;
-	}
-	.view-switch,
-	.filter-group {
-		max-width: 100%;
-		overflow-x: auto;
-	}
-	.coursework-card {
-		align-items: flex-start;
-	}
-	.coursework-card-main {
-		flex-basis: calc(100% - 3.5rem);
-	}
-	.event-detail {
-		align-items: flex-start;
-		flex-wrap: wrap;
-	}
-	.event-detail > div {
-		flex-basis: calc(100% - 3.25rem);
-	}
-	.form-actions .btn {
-		flex: 1;
-	}
+.details-help {
+  color: var(--muted);
+  margin: 20px 0 0;
+  font-size: 0.68rem;
+  line-height: 1.6;
+}
+.assignment-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.assignment-notice {
+  color: #337354;
+  font-size: 0.79rem;
+  margin: 0 0 20px;
+}
+.assignment-empty {
+  padding: 30px 23px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 13px;
+}
+.assignment-empty > .planner-icon {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 12px;
+}
+.app .assignment-empty h2 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+.assignment-empty p {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.7;
+  margin-bottom: 15px;
+}
+.assignment-form-card {
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface);
+  padding: 24px;
+  margin-bottom: 25px;
+}
+.app .form-heading h2 {
+  margin: 0 0 8px;
+  font-size: 1.08rem;
+}
+.form-heading p,
+.assignment-help {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.7;
+  margin: 0 0 20px;
+}
+.assignment-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.field-hint {
+  color: var(--muted);
+  font-size: 0.69rem;
+  font-weight: 400;
+}
+.form-wide {
+  grid-column: 1 / -1;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+}
+button,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+.task-open:focus-visible,
+.assignment-tabs button:focus-visible,
+.task-checkbox:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+}
+@media (max-width: 1199px) {
+  .assignment-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .assignment-details {
+    max-width: none;
+  }
+}
+@media (max-width: 575px) {
+  .assignment-summary {
+    gap: 7px 14px;
+    font-size: 0.72rem;
+  }
+  .coursework-card {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 9px;
+    padding: 16px 13px;
+  }
+  .task-due {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .task-due time {
+    text-align: left;
+  }
+  .assignment-filters > label {
+    flex: 1 1 100%;
+  }
+  .assignment-filters :is(input, select),
+  .assignment-form :is(input, select) {
+    font-size: 1rem;
+  }
+  .assignment-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .assignment-form-card {
+    padding: 20px 16px;
+  }
+  .form-actions .btn {
+    flex: 1;
+  }
+  .assignment-details {
+    padding: 22px 18px;
+  }
 }
 </style>
-

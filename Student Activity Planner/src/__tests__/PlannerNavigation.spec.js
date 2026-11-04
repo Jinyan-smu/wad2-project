@@ -22,14 +22,13 @@ async function render(props, slots = {}) {
 }
 
 describe('Shared planner navigation', () => {
-  it('marks the current page and links weather to the dashboard outlook', async () => {
+  it('marks the current page and links to the overall calendar', async () => {
     await render({ active: '/activities' })
     const current = wrapper.get('[aria-current="page"]')
     expect(current.text()).toBe('Activities')
     expect(current.classes()).toContain('active')
-    expect(wrapper.get('a[href="/dashboard#dashboard-weather"]').text()).toContain(
-      'Weather outlook',
-    )
+    expect(wrapper.get('a[href="/calendar"]').text()).toBe('Calendar')
+    expect(wrapper.find('a[href="/dashboard#dashboard-weather"]').exists()).toBe(false)
   })
 
   it('closes the mobile menu after selecting a route', async () => {

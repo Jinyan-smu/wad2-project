@@ -11,6 +11,7 @@ defineProps({
 const menu = ref(null)
 const links = [
   { to: '/dashboard', label: 'Dashboard', icon: 'grid' },
+  { to: '/calendar', label: 'Calendar', icon: 'calendar' },
   { to: '/assignments', label: 'Assignments', icon: 'check' },
   { to: '/activities', label: 'Activities', icon: 'pin' },
   { to: '/groupwork', label: 'Group Meetings', icon: 'users' },
@@ -38,9 +39,6 @@ function closeMenu() {
       >
         <PlannerIcon :name="link.icon" />{{ link.label }}
       </RouterLink>
-      <RouterLink class="nav-link" to="/dashboard#dashboard-weather"
-        ><PlannerIcon name="cloud" />Weather outlook</RouterLink
-      >
       <slot name="extra" />
     </nav>
     <LogoutButton />
@@ -67,9 +65,6 @@ function closeMenu() {
           >
             <PlannerIcon :name="link.icon" />{{ link.label }}
           </RouterLink>
-          <RouterLink class="nav-link" to="/dashboard#dashboard-weather" @click="closeMenu"
-            ><PlannerIcon name="cloud" />Weather outlook</RouterLink
-          >
           <slot name="extra" />
           <LogoutButton />
         </nav>

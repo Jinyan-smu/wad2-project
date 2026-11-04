@@ -206,7 +206,7 @@ export function createDashboardPersonalization() {
     state.accountId === null
       ? 'Sign in again to save your dashboard choices.'
       : state.storageAvailable
-        ? 'Your priorities, preferences, and completion history are saved for this account on this browser.'
+        ? 'Your dashboard preferences and completion history are saved for this account on this browser.'
         : 'Browser storage is unavailable. Your dashboard choices will last until you leave this page.',
   )
   return {

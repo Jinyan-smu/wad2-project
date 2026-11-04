@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Register from '@/components/Register.vue'
 import Login from '@/components/Login.vue'
 import Dashboard from '@/components/Dashboard.vue'
+import Calendar from '@/components/Calendar.vue'
 import Assignments from '@/components/Assignments.vue'
 import Activities from '@/components/Activities.vue'
 import GroupWork from '@/components/GroupWork.vue'
@@ -21,43 +22,48 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      component: Login
+      component: Login,
     },
     {
       path: '/login',
       name: 'Login',
-      component: Login
+      component: Login,
     },
     {
       path: '/register',
       name: 'Register',
-      component: Register
-    }, 
+      component: Register,
+    },
     {
       path: '/dashboard',
       name: 'Dashboard',
       component: Dashboard,
-      meta: {requiresAuth: true}
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/calendar',
+      name: 'Calendar',
+      component: Calendar,
+      meta: { requiresAuth: true },
     },
     {
       path: '/assignments',
       name: 'Assignments',
       component: Assignments,
-      meta: {requiresAuth: true}
+      meta: { requiresAuth: true },
     },
     {
       path: '/activities',
       name: 'Activities',
       component: Activities,
-      meta: {requiresAuth: true}
+      meta: { requiresAuth: true },
     },
     {
       path: '/groupwork',
       name: 'GroupWork',
       component: GroupWork,
-      meta: {requiresAuth: true}
-    }
-
+      meta: { requiresAuth: true },
+    },
   ],
 })
 
@@ -70,20 +76,19 @@ router.beforeEach(async (to) => {
 
   try {
     await axios.get('http://localhost:8000/api/me', {
-      withCredentials: true
+      withCredentials: true,
     })
 
     return true
-  } catch (error){
+  } catch (error) {
     return {
       name: 'Login',
       query: {
         required: 'true',
-        redirect: to.fullPath
-      }
+        redirect: to.fullPath,
+      },
     }
   }
 })
-
 
 export default router
