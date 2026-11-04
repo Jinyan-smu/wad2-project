@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import axios from 'axios'
-import LogoutButton from './LogoutButton.vue'
+import PlannerNavigation from './PlannerNavigation.vue'
+import PlannerIcon from './PlannerIcon.vue'
 
 /*
  * AI-assisted implementation of the two behaviours this screen was missing:
@@ -100,7 +101,7 @@ const bellPanel = ref(null)
 const bellPanelStyle = ref({})
 
 function placeBellPanel() {
-  if (window.innerWidth <= 1000) {
+  if (window.innerWidth < 992) {
     // Narrow screens use the CSS placement (full width, below the top bar).
     bellPanelStyle.value = {}
     return
@@ -673,36 +674,22 @@ async function joinDemoGroup() {
 
 <template>
   <div class="app gm-app">
-    <aside class="sidebar gm-sidebar" aria-label="Planner navigation">
-      <h2>🎓 Student Planner</h2>
-      <RouterLink to="/dashboard">📊 Dashboard</RouterLink>
-      <RouterLink to="/assignments">📝 Assignments</RouterLink>
-      <RouterLink to="/activities">📅 Activities</RouterLink>
-      <a class="disabled-link" aria-disabled="true">🌤️ Weather</a>
-      <RouterLink to="/groupwork" class="active" aria-current="page">👥 Group Meetings</RouterLink>
-      <button ref="bellButton" type="button" class="gm-bell"
+    <PlannerNavigation active="/groupwork"><template #extra><button ref="bellButton" type="button" class="gm-bell"
         :class="{ 'gm-bell-open': bellOpen, 'gm-bell-alert': pendingCount > 0 }"
         :aria-expanded="bellOpen" aria-haspopup="dialog" @click="toggleBell">
-        <span class="gm-bell-icon" aria-hidden="true">🔔</span>
+        <PlannerIcon name="bell" />
         <span>Invitations</span>
         <span v-if="pendingCount" class="gm-bell-dot" aria-hidden="true"></span>
         <span class="gm-sr-only">{{ pendingCount }} awaiting response</span>
-      </button>
-      <LogoutButton />
-    </aside>
+      </button></template></PlannerNavigation>
 
     <main class="main gm-page">
       <div class="container-xxl">
-        <nav class="gm-mobile-nav d-flex flex-wrap gap-2 mb-3" aria-label="Mobile navigation">
-          <RouterLink class="btn btn-sm btn-outline-secondary" to="/dashboard">Dashboard</RouterLink>
-          <RouterLink class="btn btn-sm btn-outline-secondary" to="/assignments">Assignments</RouterLink>
-          <RouterLink class="btn btn-sm btn-outline-secondary" to="/activities">Activities</RouterLink>
-          <button ref="mobileBellButton" type="button" class="btn btn-sm btn-outline-secondary gm-bell-mobile"
+        <PlannerNavigation active="/groupwork" mobile><template #extra><button ref="mobileBellButton" type="button" class="btn btn-sm btn-outline-secondary gm-bell-mobile"
             :class="{ 'gm-bell-alert': pendingCount > 0 }" :aria-expanded="bellOpen" @click="toggleBell">
-            <span aria-hidden="true">🔔</span> Invitations
+            <PlannerIcon name="bell" /> Invitations
             <span v-if="pendingCount" class="gm-bell-dot gm-bell-dot-inline" aria-hidden="true"></span>
-          </button>
-        </nav>
+          </button></template></PlannerNavigation>
 
         <header class="header gm-header">
           <div>
@@ -1315,8 +1302,7 @@ async function joinDemoGroup() {
 </template>
 
 <style scoped>
-.gm-sidebar a { color: rgba(255, 255, 255, .9); text-decoration: none; }
-.gm-sidebar .disabled-link { cursor: default; opacity: .6; }
+
 
 /* Sidebar invitation bell */
 .gm-bell { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 10px; padding: 12px 14px; border: 0; border-radius: 12px; background: rgba(255, 255, 255, .12); color: #fff; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
@@ -1329,55 +1315,53 @@ async function joinDemoGroup() {
 .gm-bell-mobile { position: relative; display: inline-flex; align-items: center; gap: 6px; }
 .gm-bell-mobile .gm-bell-dot { position: static; box-shadow: none; margin-left: 2px; }
 
-.gm-bell-panel { position: fixed; z-index: 1070; width: 380px; max-height: min(520px, calc(100vh - 40px)); overflow-y: auto; padding: 18px; border: 1px solid #e9ebf4; border-radius: 16px; background: #fff; box-shadow: 0 18px 48px rgba(18, 20, 45, .22); }
+.gm-bell-panel { position: fixed; z-index: 1070; width: 380px; max-height: min(520px, calc(100vh - 40px)); overflow-y: auto; padding: 18px; border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: 0 18px 48px rgba(18, 20, 45, .22); }
 .gm-bell-panel h2 { margin: 0; font-size: 1.05rem; font-weight: 750; }
-.gm-bell-close { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: #f1f2fa; color: #4e5673; font-size: 1.1rem; line-height: 1; cursor: pointer; }
-.gm-bell-close:hover { background: #e4e6f5; color: var(--ink); }
+.gm-bell-close { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: var(--surface-subtle); color: var(--muted); font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.gm-bell-close:hover { background: var(--border); color: var(--ink); }
 .gm-bell-panel .gm-invitation-row:last-of-type { border-bottom: 0; }
-@media (max-width: 1000px) { .gm-bell-panel { top: 72px !important; left: 12px; right: 12px; width: auto; max-height: calc(100vh - 96px); } }
+@media (max-width: 991.98px) { .gm-bell-panel { top: 72px !important; left: 12px; right: 12px; width: auto; max-height: calc(100vh - 96px); } }
 
 .gm-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .gm-page { width: 100%; max-width: 1600px; margin: 0 auto; }
-.gm-header h1 { font-size: clamp(1.8rem, 3vw, 2.45rem); font-weight: 750; letter-spacing: -.04em; }
-.gm-eyebrow { color: var(--brand); font-size: .7rem; font-weight: 800; letter-spacing: .12em; }
-.gm-phase, .gm-sample { background: #ececff; color: #4545ba; }
-.gm-unknown { background: #eceefa; color: #555e79; }
+.gm-phase, .gm-sample { background: var(--brand-soft); color: var(--brand); }
+.gm-unknown { background: var(--brand-soft); color: var(--muted); }
 .gm-invitation-pending { background: #fff3d6; color: #875800; }
 .gm-invitation-accepted { background: #dcf8ef; color: #0a7a5a; }
 .gm-invitation-declined, .gm-invitation-cancelled { background: #ffe9ee; color: #a32642; }
-.gm-invitation-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 16px 0; border-bottom: 1px solid #e9ecf4; }
+.gm-invitation-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
 .gm-member-info { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
-.gm-sent-invitation { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px dashed #e4e6f5; }
+.gm-sent-invitation { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
 .gm-subheading { font-size: .95rem; }
 .gm-notifications .btn { min-height: 40px; }
 .gm-phase { padding: .65rem .9rem; }
-.gm-summary { padding: 1rem 1.15rem; border: 1px solid #e9ebf4; border-radius: 1rem; background: #fff; }
+.gm-summary { padding: 1rem 1.15rem; border: 1px solid var(--border); border-radius: 1rem; background: #fff; }
 .gm-summary span, .gm-summary strong, .gm-summary small { display: block; }
-.gm-summary span, .gm-summary small, .gm-help { color: #626a83; font-size: .85rem; }
+.gm-summary span, .gm-summary small, .gm-help { color: var(--muted); font-size: .85rem; }
 .gm-summary strong { font-size: 1.4rem; margin: .3rem 0; }
 .gm-column { min-width: 0; }
 .gm-card h2 { font-size: 1.1rem; font-weight: 700; margin: 0 0 .5rem; }
 .gm-source-list { display: grid; gap: 10px; }
-.gm-source-item { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 14px; background: #f8f9fe; border-left: 4px solid var(--brand); border-radius: 12px; }
+.gm-source-item { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 14px; background: var(--surface-subtle); border-left: 4px solid var(--brand); border-radius: 12px; }
 .gm-record { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
-.gm-time { color: #4e5673; font-size: .85rem; }
-.gm-context { padding: 14px; background: #f6f7fd; border-radius: 12px; }
+.gm-time { color: var(--muted); font-size: .85rem; }
+.gm-context { padding: 14px; background: var(--surface-subtle); border-radius: 12px; }
 .gm-context strong { font-size: .9rem; }
-.gm-text-link { display: inline-block; margin-top: 8px; color: #4545ba; }
-.gm-empty { padding: 24px 12px; text-align: center; color: #626a83; }
+.gm-text-link { display: inline-block; margin-top: 8px; color: var(--brand); }
+.gm-empty { padding: 24px 12px; text-align: center; color: var(--muted); }
 .gm-empty strong { display: block; color: var(--ink); margin-bottom: 8px; }
-.gm-pending { border: 1px dashed #d5d9e7; border-radius: 12px; background: #f8f9fe; }
-.gm-member { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px dashed #e4e6f5; }
+.gm-pending { border: 1px dashed var(--border); border-radius: 12px; background: var(--surface-subtle); }
+.gm-member { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
 .gm-card .form-label { font-size: .85rem; font-weight: 600; }
 .gm-card input, .gm-card select { min-width: 0; min-height: 44px; }
 .gm-card .btn { min-height: 40px; }
-.gm-card :focus-visible, .gm-mobile-nav :focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; }
-.gm-best { padding: 16px; border-radius: 14px; background: linear-gradient(135deg, #ececff, #f4f0ff); border: 1px solid #ded9ff; }
-.gm-best span { display: block; font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #5b53c9; }
+.gm-card :focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; }
+.gm-best { padding: 16px; border-radius: 14px; background: linear-gradient(135deg, var(--brand-soft), #f4f0ff); border: 1px solid #ded9ff; }
+.gm-best span { display: block; font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--brand); }
 .gm-best strong { display: block; font-size: 1.15rem; margin: 4px 0 2px; }
 .gm-day { margin-top: 18px; }
-.gm-day-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid #e9ecf4; }
-.gm-block { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px; margin-top: 10px; background: #f8f9fe; border-left: 4px solid var(--green); border-radius: 12px; }
+.gm-day-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.gm-block { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px; margin-top: 10px; background: var(--surface-subtle); border-left: 4px solid var(--green); border-radius: 12px; }
 .gm-block-range strong { display: block; }
 .gm-slot-list { display: flex; flex-wrap: wrap; gap: 8px; }
 /* A start time is a button, and it says so: the time alone looked like a label. */
@@ -1392,16 +1376,16 @@ async function joinDemoGroup() {
 .gm-slot-tight:hover .gm-slot-action { background: #ffe8b8; }
 .gm-slot-picked, .gm-slot-picked:hover { background: var(--brand); border-color: var(--brand); color: #fff; }
 .gm-slot-picked .gm-slot-action, .gm-slot-picked:hover .gm-slot-action { background: rgba(255, 255, 255, .22); color: #fff; }
-.gm-slot-more { border: 0; background: #eceefa; color: #555e79; cursor: default; font-weight: 700; }
+.gm-slot-more { border: 0; background: var(--brand-soft); color: var(--muted); cursor: default; font-weight: 700; }
 
 /* Result + booking live inside the search card */
-.gm-result-area { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid #e9ecf4; scroll-margin-top: 1rem; }
+.gm-result-area { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border); scroll-margin-top: 1rem; }
 .gm-result-area:focus, .gm-booking:focus { outline: none; }
-.gm-booking { margin-top: 1.5rem; padding: 16px; border: 1px dashed #d5d9e7; border-radius: 14px; background: #f8f9fe; scroll-margin-top: 1rem; }
-.gm-meeting-row { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px; margin-top: 10px; background: #f8f9fe; border-left: 4px solid var(--green); border-radius: 12px; }
+.gm-booking { margin-top: 1.5rem; padding: 16px; border: 1px dashed var(--border); border-radius: 14px; background: var(--surface-subtle); scroll-margin-top: 1rem; }
+.gm-meeting-row { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px; margin-top: 10px; background: var(--surface-subtle); border-left: 4px solid var(--green); border-radius: 12px; }
 .gm-meeting-time { min-width: 92px; }
 .gm-meeting-time strong { display: block; font-size: 1rem; }
-.gm-meeting-time small { color: #626a83; font-size: .78rem; }
+.gm-meeting-time small { color: var(--muted); font-size: .78rem; }
 .gm-meeting-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .gm-meetings { scroll-margin-top: 1rem; }
 .gm-meetings:focus { outline: none; }
@@ -1418,12 +1402,11 @@ async function joinDemoGroup() {
 .gm-modal { width: 100%; max-width: 520px; padding: 24px; border-radius: 18px; background: #fff; box-shadow: 0 24px 60px rgba(18, 20, 45, .28); }
 .gm-modal h2 { margin: 0 0 .5rem; font-size: 1.15rem; font-weight: 750; letter-spacing: -.01em; }
 .gm-modal p { color: var(--ink); font-size: .92rem; }
-.gm-modal .gm-help { color: #626a83; font-size: .85rem; }
+.gm-modal .gm-help { color: var(--muted); font-size: .85rem; }
 .gm-modal-time { padding: 10px 12px; border-radius: 10px; background: #fff3d6; color: #875800; font-weight: 700; font-size: .9rem !important; }
 .gm-modal-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 1.25rem; }
 .gm-modal-actions .btn { min-height: 42px; }
 @media (max-width: 520px) { .gm-modal-actions .btn { flex: 1 1 100%; } }
-@media (min-width: 1001px) { .gm-mobile-nav { display: none !important; } }
-@media (max-width: 700px) { .app .gm-page { padding: 20px 12px; } .gm-source-item { padding: 12px; } }
+@media (max-width: 767.98px) {  .gm-source-item { padding: 12px; } }
 </style>
 

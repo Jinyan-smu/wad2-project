@@ -1,8 +1,8 @@
 <script setup>
   import { computed, onMounted, ref } from 'vue'
-  import { RouterLink, useRoute } from 'vue-router'
+  import { useRoute } from 'vue-router'
   import axios from 'axios'
-  import LogoutButton from './LogoutButton.vue'
+  import PlannerNavigation from './PlannerNavigation.vue'
 
   const API_URL = 'http://localhost:8000/api'
   const route = useRoute()
@@ -383,31 +383,11 @@
 
 <template>
 	<div class="app assignments-app">
-		<aside class="sidebar assignments-sidebar">
-			<h2>🎓 Student Planner</h2>
-			<RouterLink to="/dashboard">📊 Dashboard</RouterLink>
-			<RouterLink to="/assignments" class="active">📝 Assignments</RouterLink>
-			<RouterLink to="/activities">📅 Activities</RouterLink>
-			<a>🌤️ Weather</a>
-			<RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
-			<LogoutButton />
-		</aside>
+		<PlannerNavigation active="/assignments" />
 
 		<main class="main assignments-page">
 			<div class="container-xxl assignments-container">
-				<nav class="d-lg-none mb-3" aria-label="Mobile navigation">
-				  <details>
-				    <summary class="btn btn-primary d-inline-flex align-items-center gap-2"><span aria-hidden="true">☰</span> Menu</summary>
-				    <div class="list-group shadow-sm mt-2">
-				      <RouterLink class="list-group-item list-group-item-action" to="/dashboard">📊 Dashboard</RouterLink>
-				      <RouterLink class="list-group-item list-group-item-action active" to="/assignments">📝 Assignments</RouterLink>
-				      <RouterLink class="list-group-item list-group-item-action" to="/activities">📅 Activities</RouterLink>
-				      <a class="list-group-item disabled" aria-disabled="true">🌤️ Weather</a>
-				      <RouterLink class="list-group-item list-group-item-action" to="/groupwork">👥 Group Meetings</RouterLink>
-				      <div class="list-group-item"><LogoutButton /></div>
-				    </div>
-				  </details>
-				</nav>
+				<PlannerNavigation active="/assignments" mobile />
 			<header class="header assignments-header">
 				<div>
 					<p class="eyebrow">STAY ON TOP OF YOUR WORK</p>
@@ -747,54 +727,21 @@
 	margin: 0 auto;
 	width: 100%;
 }
-.assignments-header {
-	margin-bottom: 1.5rem;
-}
-.assignments-header h1 {
-	font-size: clamp(1.8rem, 3vw, 2.45rem);
-	font-weight: 750;
-	letter-spacing: -0.04em;
-}
 .assignments-header > div > p:last-child {
 	margin-top: 0.35rem;
-}
-.eyebrow {
-	margin: 0 0 0.4rem;
-	color: var(--brand);
-	font-size: 0.7rem;
-	font-weight: 800;
-	letter-spacing: 0.12em;
-}
-.assignment-form-card,
-.planner-card {
-	border: 0;
-	box-shadow: 0 0.6rem 2rem rgba(33, 42, 92, 0.07);
 }
 .form-heading {
 	margin-bottom: 1.25rem;
 }
-.form-heading h2 {
-	margin: 0;
-	font-size: 1.2rem;
-	font-weight: 700;
-}
 .form-field {
 	min-width: 0;
 }
-.form-field .form-label {
-	font-size: 0.85rem;
-	font-weight: 650;
-	color: #414761;
-}
 .form-label span {
-	color: #8a90a4;
+	color: var(--muted);
 	font-weight: 400;
 }
 .form-actions {
 	padding-top: 0.25rem;
-}
-.planner-card > .card-body {
-	padding: 1.15rem 1.25rem 1.35rem;
 }
 .planner-toolbar,
 .calendar-toolbar,
@@ -807,7 +754,7 @@
 .planner-toolbar {
 	flex-wrap: wrap;
 	padding-bottom: 1rem;
-	border-bottom: 1px solid #edf0f6;
+	border-bottom: 1px solid var(--border);
 }
 .planner-toolbar-controls {
 	display: flex;
@@ -825,7 +772,7 @@
 	display: flex;
 	align-items: center;
 	gap: 0.6rem;
-	color: #777f97;
+	color: var(--muted);
 	font-size: 0.8rem;
 	font-weight: 650;
 }
@@ -849,9 +796,9 @@
 	align-items: center;
 	gap: 0.2rem;
 	padding: 0.2rem;
-	border: 1px solid #e8eaf3;
+	border: 1px solid var(--border);
 	border-radius: 0.75rem;
-	background: #f8f9fc;
+	background: var(--surface-subtle);
 }
 .view-switch button,
 .filter-group button {
@@ -859,7 +806,7 @@
 	border: 0;
 	border-radius: 0.55rem;
 	background: transparent;
-	color: #687087;
+	color: var(--muted);
 	font-size: 0.76rem;
 	font-weight: 650;
 	white-space: nowrap;
@@ -879,7 +826,7 @@
 	justify-content: center;
 	gap: 0.75rem;
 	min-height: 240px;
-	color: #727a91;
+	color: var(--muted);
 }
 .calendar-toolbar {
 	padding: 1.25rem 0 1rem;
@@ -890,7 +837,7 @@
 	font-weight: 750;
 }
 .calendar-month-title span {
-	color: #80879b;
+	color: var(--muted);
 	font-size: 0.8rem;
 }
 .calendar-scroll {
@@ -903,14 +850,14 @@
 	min-width: 700px;
 }
 .calendar-weekdays {
-	border: 1px solid #e9ecf4;
+	border: 1px solid var(--border);
 	border-bottom: 0;
 	border-radius: 0.8rem 0.8rem 0 0;
-	background: #f8f9fc;
+	background: var(--surface-subtle);
 }
 .calendar-weekdays span {
 	padding: 0.7rem 0.8rem;
-	color: #7d8498;
+	color: var(--muted);
 	font-size: 0.72rem;
 	font-weight: 750;
 	letter-spacing: 0.04em;
@@ -919,7 +866,7 @@
 }
 .calendar-grid {
 	overflow: hidden;
-	border: 1px solid #e9ecf4;
+	border: 1px solid var(--border);
 	border-radius: 0 0 0.8rem 0.8rem;
 }
 .calendar-day {
@@ -928,10 +875,10 @@
 	min-height: 118px;
 	padding: 0.55rem;
 	border: 0;
-	border-top: 1px solid #e9ecf4;
-	border-right: 1px solid #e9ecf4;
+	border-top: 1px solid var(--border);
+	border-right: 1px solid var(--border);
 	background: #fff;
-	color: #202541;
+	color: var(--ink);
 	text-align: left;
 	transition: background-color 0.15s ease;
 }
@@ -940,11 +887,11 @@
 }
 .calendar-day:hover,
 .calendar-day.selected {
-	background: #f5f5ff;
+	background: var(--brand-soft);
 }
 .calendar-day.outside-month {
-	background: #fafbfe;
-	color: #a6abbb;
+	background: var(--surface-subtle);
+	color: var(--muted);
 }
 .calendar-day.today .day-number {
 	color: #fff;
@@ -978,8 +925,8 @@
 	line-height: 1.2;
 }
 .calendar-event.assignment {
-	background: #eeeefe;
-	color: #4242bc;
+	background: var(--brand-soft);
+	color: var(--brand);
 }
 .calendar-event.quiz {
 	background: #e9f5ff;
@@ -1011,14 +958,14 @@
 }
 .more-events {
 	padding-left: 0.35rem;
-	color: #7c8297;
+	color: var(--muted);
 	font-size: 0.65rem;
 }
 .calendar-legend {
 	display: flex;
 	gap: 1rem;
 	padding: 0.85rem 0.15rem 0;
-	color: #737b91;
+	color: var(--muted);
 	font-size: 0.75rem;
 }
 .calendar-legend span {
@@ -1027,7 +974,7 @@
 	gap: 0.4rem;
 }
 .assignment-dot {
-	background: #5b5bf0;
+	background: var(--brand);
 }
 .quiz-dot {
 	background: #45a1dc;
@@ -1036,7 +983,7 @@
 .undated-section {
 	margin-top: 1.35rem;
 	padding-top: 1.1rem;
-	border-top: 1px solid #edf0f6;
+	border-top: 1px solid var(--border);
 }
 .event-date-label {
 	width: fit-content;
@@ -1051,7 +998,7 @@
 }
 .event-date-label.past,
 .event-date-label.undated {
-	color: #858ba0 !important;
+	color: var(--muted) !important;
 }
 .coursework-status {
 	display: inline-flex;
@@ -1059,8 +1006,8 @@
 	align-items: center;
 	padding: 0.14rem 0.48rem;
 	border-radius: 99px;
-	background: #eef0ff;
-	color: #4848a5;
+	background: var(--brand-soft);
+	color: var(--brand);
 	font-size: 0.66rem;
 	font-weight: 750;
 }
@@ -1074,14 +1021,14 @@
 }
 .coursework-status.past,
 .coursework-status.undated {
-	background: #f0f1f5;
-	color: #6f7588;
+	background: var(--surface-subtle);
+	color: var(--muted);
 }
 .completion-action {
 	display: inline-flex;
 	align-items: center;
 	gap: 0.4rem;
-	color: #687087;
+	color: var(--muted);
 	font-size: 0.75rem;
 	white-space: nowrap;
 }
@@ -1097,7 +1044,7 @@
 }
 .course-group {
 	overflow: hidden;
-	border: 1px solid #e8eaf2;
+	border: 1px solid var(--border);
 	border-radius: 0.85rem;
 	background: #fff;
 }
@@ -1109,8 +1056,8 @@
 	gap: 1rem;
 	padding: 0.9rem 1rem;
 	border: 0;
-	background: #f8f9fc;
-	color: #292e45;
+	background: var(--surface-subtle);
+	color: var(--ink);
 	text-align: left;
 }
 .course-group-heading > span:first-child {
@@ -1125,7 +1072,7 @@
 	white-space: nowrap;
 }
 .course-group-heading small {
-	color: #81879a;
+	color: var(--muted);
 	font-size: 0.72rem;
 }
 .group-chevron {
@@ -1141,7 +1088,7 @@
 	flex-wrap: wrap;
 	gap: 0.75rem;
 	padding: 0.85rem 0.2rem;
-	border-bottom: 1px solid #eff1f6;
+	border-bottom: 1px solid var(--border);
 }
 .coursework-card:last-child {
 	border-bottom: 0;
@@ -1151,7 +1098,7 @@
 	padding-left: 0.65rem;
 }
 .coursework-card.completed .coursework-card-main > strong {
-	color: #737b91;
+	color: var(--muted);
 	text-decoration: line-through;
 }
 .coursework-card-main {
@@ -1165,7 +1112,7 @@
 	font-size: 0.88rem;
 }
 .coursework-card-main > span {
-	color: #7c8296;
+	color: var(--muted);
 	font-size: 0.76rem;
 }
 .coursework-card-main > .event-date-label {
@@ -1192,7 +1139,7 @@
 	align-items: center;
 	gap: 0.8rem;
 	padding: 0.75rem 0;
-	border-bottom: 1px solid #eff1f6;
+	border-bottom: 1px solid var(--border);
 }
 .event-detail > div,
 .undated-item > div {
@@ -1203,7 +1150,7 @@
 }
 .event-detail > div span,
 .undated-item > div span {
-	color: #7c8296;
+	color: var(--muted);
 	font-size: 0.77rem;
 }
 .event-type-icon {
@@ -1213,14 +1160,14 @@
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 0.7rem;
-	background: #f0f0ff;
+	background: var(--brand-soft);
 }
 .event-type-icon.quiz {
 	background: #e9f5ff;
 }
 .undated-section .section-heading > div > p {
 	margin: 0.25rem 0 0;
-	color: #7c8296;
+	color: var(--muted);
 	font-size: 0.78rem;
 }
 .event-detail strong,
@@ -1231,7 +1178,7 @@
 }
 .undated-label {
 	flex: 0 0 auto;
-	color: #858ba0;
+	color: var(--muted);
 	font-size: 0.72rem;
 }
 .empty-state {
@@ -1249,16 +1196,12 @@
 }
 .empty-state p {
 	margin: 0;
-	color: #7c8296;
+	color: var(--muted);
 	font-size: 0.88rem;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767.98px) {
 	.assignments-page {
-		padding: 1.2rem;
-	}
-	.assignments-header {
-		align-items: flex-start;
 	}
 	.overview-card {
 		padding: 0.75rem 0.9rem;

@@ -1,8 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import axios from 'axios'
-import LogoutButton from './LogoutButton.vue'
+import PlannerNavigation from './PlannerNavigation.vue'
 import GoogleActivityMap from './GoogleActivityMap.vue'
 
 const route = useRoute()
@@ -506,31 +506,11 @@ onMounted(async () => {
 
 <template>
 	<div class="app activities-app">
-		<aside class="sidebar activities-sidebar">
-			<h2>🎓 Student Planner</h2>
-			<RouterLink to="/dashboard">📊 Dashboard</RouterLink>
-			<RouterLink to="/assignments">📝 Assignments</RouterLink>
-			<RouterLink to="/activities" class="active">📅 Activities</RouterLink>
-			<a>🌤️ Weather</a>
-			<RouterLink to="/groupwork">👥 Group Meetings</RouterLink>
-			<LogoutButton />
-		</aside>
+		<PlannerNavigation active="/activities" />
 
 		<main class="main activities-page">
 			<div class="container-fluid activities-container">
-				<nav class="d-lg-none mb-3" aria-label="Mobile navigation">
-				  <details>
-				    <summary class="btn btn-primary d-inline-flex align-items-center gap-2"><span aria-hidden="true">☰</span> Menu</summary>
-				    <div class="list-group shadow-sm mt-2">
-				      <RouterLink class="list-group-item list-group-item-action" to="/dashboard">📊 Dashboard</RouterLink>
-				      <RouterLink class="list-group-item list-group-item-action" to="/assignments">📝 Assignments</RouterLink>
-				      <RouterLink class="list-group-item list-group-item-action active" to="/activities">📅 Activities</RouterLink>
-				      <a class="list-group-item disabled" aria-disabled="true">🌤️ Weather</a>
-				      <RouterLink class="list-group-item list-group-item-action" to="/groupwork">👥 Group Meetings</RouterLink>
-				      <div class="list-group-item"><LogoutButton /></div>
-				    </div>
-				  </details>
-				</nav>
+				<PlannerNavigation active="/activities" mobile />
 				<header class="header activities-header">
 					<div>
 						<h1>Activities</h1>
@@ -814,18 +794,10 @@ onMounted(async () => {
 	background: var(--bg);
 }
 
-.activities-sidebar a.active {
-	color: var(--brand);
-}
+
 
 .activities-page {
 	width: 100%;
-}
-
-.activities-header h1 {
-	font-size: clamp(1.8rem, 3vw, 2.45rem);
-	font-weight: 750;
-	letter-spacing: -0.04em;
 }
 
 /* Form */
@@ -839,24 +811,12 @@ onMounted(async () => {
 	margin-bottom: 1.25rem;
 }
 
-.form-heading h2 {
-	margin: 0;
-	font-size: 1.2rem;
-	font-weight: 700;
-}
-
 .form-field {
 	min-width: 0;
 }
 
-.form-field .form-label {
-	font-size: 0.85rem;
-	font-weight: 650;
-	color: #414761;
-}
-
 .form-label span {
-	color: #8a90a4;
+	color: var(--muted);
 	font-weight: 400;
 }
 
@@ -883,7 +843,7 @@ onMounted(async () => {
 
 .result-button:hover,
 .result-button:focus-visible {
-	background: #f5f5ff;
+	background: var(--brand-soft);
 }
 
 .chosen-location {
@@ -894,7 +854,7 @@ onMounted(async () => {
 	margin-top: 0.6rem;
 	padding: 0.5rem 0.75rem;
 	border-radius: 0.6rem;
-	background: #f0f0ff;
+	background: var(--brand-soft);
 	font-size: 0.85rem;
 }
 
@@ -911,9 +871,7 @@ onMounted(async () => {
 }
 
 /* Toolbar */
-.planner-card>.card-body {
-	padding: 1.15rem 1.25rem 1.35rem;
-}
+
 
 .planner-toolbar {
 	display: flex;
@@ -922,7 +880,7 @@ onMounted(async () => {
 	flex-wrap: wrap;
 	gap: 1rem;
 	padding-bottom: 1rem;
-	border-bottom: 1px solid #edf0f6;
+	border-bottom: 1px solid var(--border);
 }
 
 .view-title {
@@ -942,7 +900,7 @@ onMounted(async () => {
 	display: flex;
 	align-items: center;
 	gap: 0.6rem;
-	color: #777f97;
+	color: var(--muted);
 	font-size: 0.8rem;
 	font-weight: 650;
 }
@@ -984,7 +942,7 @@ onMounted(async () => {
 .map-wrap {
 	position: relative;
 	overflow: hidden;
-	border: 1px solid #e9ecf4;
+	border: 1px solid var(--border);
 	border-radius: 0.8rem;
 }
 
@@ -1121,7 +1079,7 @@ onMounted(async () => {
 	border-radius: 99px;
 	background: #fff;
 	box-shadow: 0 0.3rem 1rem rgba(33, 42, 92, 0.15);
-	color: #727a91;
+	color: var(--muted);
 	font-size: 0.8rem;
 	white-space: nowrap;
 	pointer-events: none;
@@ -1132,7 +1090,7 @@ onMounted(async () => {
 	flex-wrap: wrap;
 	gap: 1rem;
 	padding: 0.85rem 0.15rem 0;
-	color: #737b91;
+	color: var(--muted);
 	font-size: 0.75rem;
 }
 
@@ -1164,14 +1122,14 @@ onMounted(async () => {
 	gap: 0.6rem 0.8rem;
 	padding: 0.8rem 0.9rem;
 	margin-bottom: 0.6rem;
-	border: 1px solid #e9ecf4;
-	border-left: 5px solid #e9ecf4;
+	border: 1px solid var(--border);
+	border-left: 5px solid var(--border);
 	border-radius: 0.9rem;
-	background: #f8f9fe;
+	background: var(--surface-subtle);
 }
 
 .activity-row.selected {
-	background: #f0f0ff;
+	background: var(--brand-soft);
 	border-left-color: var(--brand);
 }
 
@@ -1200,7 +1158,7 @@ onMounted(async () => {
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 0.75rem;
-	background: #ececff;
+	background: var(--brand-soft);
 	font-size: 1.2rem;
 }
 
@@ -1223,7 +1181,7 @@ onMounted(async () => {
 }
 
 .activity-info span {
-	color: #7c8296;
+	color: var(--muted);
 	font-size: 0.77rem;
 }
 
@@ -1246,7 +1204,7 @@ onMounted(async () => {
 	justify-content: center;
 	gap: 0.75rem;
 	min-height: 240px;
-	color: #727a91;
+	color: var(--muted);
 }
 
 .empty-state {
@@ -1267,13 +1225,12 @@ onMounted(async () => {
 
 .empty-state p {
 	margin: 0;
-	color: #7c8296;
+	color: var(--muted);
 	font-size: 0.88rem;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767.98px) {
 	.activities-page {
-		padding: 1.2rem;
 	}
 
 	.planner-toolbar,
