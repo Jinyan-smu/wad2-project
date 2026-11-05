@@ -31,7 +31,7 @@ You should see `Server running at http://localhost:8000/`.
 **In the second terminal, start the website:**
 
 ```sh
-cd "Student Activity Planner"
+cd "PocketSemester"
 pnpm install
 pnpm dev --port 5173 --strictPort
 ```
