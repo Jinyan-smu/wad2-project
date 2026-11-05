@@ -23,21 +23,51 @@ let mapsPromise
 
 const singapore = { lat: 1.3521, lng: 103.8198 }
 
+
 function loadMapsApi() {
-  if (window.google?.maps?.Map) return Promise.resolve()
+  if (window.google?.maps?.importLibrary) {
+    return Promise.resolve()
+  }
+
   if (mapsPromise) return mapsPromise
 
   mapsPromise = new Promise((resolve, reject) => {
+    const callbackName = '__studentActivityPlannerMapsReady'
+
+    window[callbackName] = () => {
+      delete window[callbackName]
+      resolve()
+    }
+
     const script = document.createElement('script')
-    const params = new URLSearchParams({ key: API_KEY, v: 'weekly', loading: 'async' })
+
+    const params = new URLSearchParams({
+      key: API_KEY,
+      v: 'weekly',
+      loading: 'async',
+      callback: callbackName,
+    })
+
     script.src = `https://maps.googleapis.com/maps/api/js?${params}`
     script.async = true
     script.dataset.googleMapsApi = 'true'
-    script.onload = resolve
-    script.onerror = () => reject(new Error('Google Maps could not be loaded. Check that the API key is valid and Maps JavaScript API is enabled.'))
+
+    script.onerror = () => {
+      delete window[callbackName]
+      mapsPromise = null
+
+      reject(
+        new Error(
+          'Google Maps could not be loaded. Check that the API key is valid and Maps JavaScript API is enabled.'
+        )
+      )
+    }
+
     document.head.append(script)
   })
+
   return mapsPromise
+
 }
 
 function markerColor(activity) {
@@ -228,9 +258,9 @@ onMounted(async () => {
     error.value = 'Add VITE_GOOGLE_MAPS_API_KEY to Student Activity Planner/.env to load Google Maps.'
     return
   }
-
   try {
     await loadMapsApi()
+    await window.google.maps.importLibrary('maps')
     map = new window.google.maps.Map(mapElement.value, {
       center: singapore,
       zoom: 11,
@@ -251,6 +281,8 @@ onMounted(async () => {
   } catch (loadError) {
     error.value = loadError.message || 'Google Maps could not be loaded.'
   }
+
+
 })
 
 onBeforeUnmount(() => {
@@ -264,9 +296,11 @@ onBeforeUnmount(() => {
 <template>
   <div class="google-map-shell">
     <div v-if="error" class="map-setup-message" role="status">{{ error }}</div>
-    <div v-else ref="mapElement" class="google-map" :class="{ picking }" aria-label="Google map of Singapore activities"></div>
+    <div v-else ref="mapElement" class="google-map" :class="{ picking }"
+      aria-label="Google map of Singapore activities"></div>
     <div v-if="!error" class="map-controls" role="group" aria-label="Map controls">
-      <button type="button" class="btn btn-light btn-sm" aria-label="Show Singapore and activity locations" @click="resetMap">⟲</button>
+      <button type="button" class="btn btn-light btn-sm" aria-label="Show Singapore and activity locations"
+        @click="resetMap">⟲</button>
     </div>
     <p v-if="picking && !error" class="map-hint">Click the map to set the activity location.</p>
   </div>
@@ -282,8 +316,15 @@ onBeforeUnmount(() => {
   background: #e9eef6;
 }
 
-.google-map { width: 100%; height: clamp(340px, 52vw, 600px); }
-.google-map.picking { cursor: crosshair; }
+.google-map {
+  width: 100%;
+  height: clamp(340px, 52vw, 600px);
+}
+
+.google-map.picking {
+  cursor: crosshair;
+}
+
 .map-setup-message {
   display: grid;
   min-height: 340px;
@@ -293,8 +334,20 @@ onBeforeUnmount(() => {
   text-align: center;
   background: linear-gradient(135deg, #e8f0fa, #f7f9fd);
 }
-.map-controls { position: absolute; top: .75rem; right: .75rem; }
-.map-controls .btn { width: 2rem; height: 2rem; padding: 0; box-shadow: 0 .2rem .6rem rgb(33 42 92 / 18%); }
+
+.map-controls {
+  position: absolute;
+  top: .75rem;
+  right: .75rem;
+}
+
+.map-controls .btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  box-shadow: 0 .2rem .6rem rgb(33 42 92 / 18%);
+}
+
 .map-hint {
   position: absolute;
   left: 50%;
