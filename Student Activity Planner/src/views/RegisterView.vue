@@ -1,5 +1,5 @@
 <script setup>
-import PlannerIcon from '@/components/icons/PlannerIcon.vue'
+import PocketSemesterBrand from '@/components/PocketSemesterBrand.vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
@@ -92,8 +92,7 @@ async function handleSubmit() {
     <div class="auth-card">
 
       <div class="auth-brand">
-        <span class="auth-brand-mark"><PlannerIcon name="book" /></span>
-        <span class="auth-brand-name">Student Planner</span>
+        <PocketSemesterBrand />
       </div>
 
       <h1 class="auth-title">Create your account</h1>

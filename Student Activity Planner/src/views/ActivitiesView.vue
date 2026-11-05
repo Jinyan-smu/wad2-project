@@ -43,6 +43,7 @@ const editingId = ref(null)
 const confirmDeleteId = ref(null)
 const viewMode = ref('map')
 const timeFilter = ref('upcoming')
+const activityListQuery = ref('')
 const selectedId = ref(null)
 
 const emptyForm = () => ({
@@ -71,7 +72,7 @@ async function fetchActivities() {
 		const data = response.data
 		return Array.isArray(data) ? data : []
 	} catch (error) {
-		throw new Error(error || 'Could not load activities.')
+		throw new Error(error || 'Could not load activities.', { cause: error })
 	}
 }
 
@@ -83,7 +84,7 @@ async function createActivity(payload) {
 		const data = response.data
 		return data
 	} catch (error) {
-		throw new Error(error || 'Could not save the activity.')
+		throw new Error(error || 'Could not save the activity.', { cause: error })
 	}
 }
 
@@ -95,7 +96,7 @@ async function updateActivity(id, changes) {
 		const data = response.data
 		return data
 	} catch (error) {
-		throw new Error(error || 'Could not update the activity.')
+		throw new Error(error || 'Could not update the activity.', { cause: error })
 	}
 
 	
@@ -110,7 +111,7 @@ async function deleteActivityRecord(id) {
 		const data = response.data
 		return data
 	} catch (error) {
-		throw new Error(error || 'Could not delete the activity.')
+		throw new Error(error || 'Could not delete the activity.', { cause: error })
 	}
 	
 }
@@ -282,6 +283,20 @@ const visibleActivities = computed(() => {
 
 const mappableActivities = computed(() => visibleActivities.value.filter(hasLocation))
 const unmappedCount = computed(() => visibleActivities.value.length - mappableActivities.value.length)
+const searchedActivities = computed(() => {
+	const terms = activityListQuery.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+	if (!terms.length) return visibleActivities.value
+	return visibleActivities.value.filter((activity) => {
+		const text = [activity.title, activity.place, activity.notes].join(' ').toLowerCase()
+		return terms.every((term) => text.includes(term))
+	})
+})
+
+async function clearActivitySearch() {
+	activityListQuery.value = ''
+	await nextTick()
+	document.getElementById('activity-list-search')?.focus()
+}
 
 const totalCount = computed(() => activities.value.length)
 const upcomingCount = computed(
@@ -760,19 +775,33 @@ onMounted(async () => {
 							</div>
 
 							<div v-show="viewMode === 'list'" class="list-column">
+								<div class="activity-list-search">
+									<label for="activity-list-search" class="form-label">Search activities</label>
+									<div class="activity-list-search-field">
+										<input id="activity-list-search" v-model="activityListQuery" type="search"
+											class="form-control" placeholder="Search by name, location or notes"
+											:aria-describedby="!loading ? 'activity-list-results' : undefined" />
+										<button v-if="activityListQuery" type="button" class="btn btn-outline-secondary"
+											aria-label="Clear activity search" @click="clearActivitySearch">Clear</button>
+									</div>
+									<p v-if="!loading" id="activity-list-results" class="muted mb-0" role="status">
+										{{ searchedActivities.length }} of {{ visibleActivities.length }}
+										{{ visibleActivities.length === 1 ? 'activity' : 'activities' }}
+									</p>
+								</div>
 								<div v-if="loading" class="loading-state" role="status">
 									<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
 									Loading activities…
 								</div>
 
-								<div v-else-if="!visibleActivities.length" class="empty-state">
+								<div v-else-if="!searchedActivities.length" class="empty-state">
 									<span>📅</span>
-									<strong class="empty-title">No activities here</strong>
-									<p>Use “+ Activity” to plan something, or change the filter above.</p>
+									<strong class="empty-title">{{ activityListQuery.trim() ? 'No matching activities' : 'No activities here' }}</strong>
+									<p>{{ activityListQuery.trim() ? 'Try another search or change the time filter above.' : 'Use “+ Activity” to plan something, or change the filter above.' }}</p>
 								</div>
 
 								<template v-else>
-									<div v-for="activity in visibleActivities" :id="`activity-${activity.id}`"
+									<div v-for="activity in searchedActivities" :id="`activity-${activity.id}`"
 										:key="activity.id" class="activity-row"
 										:data-urgency="activity.urgency?.level"
 										:class="{ selected: activity.id === selectedId, done: activity.done }">
@@ -1016,6 +1045,24 @@ onMounted(async () => {
 .list-column {
 	min-width: 0;
 	width: 100%;
+}
+.activity-list-search {
+	padding-bottom: 16px;
+	border-bottom: 1px solid var(--border);
+}
+.activity-list-search-field {
+	display: flex;
+	gap: 8px;
+}
+.activity-list-search-field input {
+	min-width: 0;
+}
+.activity-list-search-field button {
+	flex-shrink: 0;
+}
+.activity-list-search p {
+	margin-top: 8px;
+	font-size: .75rem;
 }
 
 /* Map */

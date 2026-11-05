@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import LogoutButton from './LogoutButton.vue'
 import PlannerIcon from '@/components/icons/PlannerIcon.vue'
+import PocketSemesterBrand from './PocketSemesterBrand.vue'
 
 defineProps({
   active: { type: String, required: true },
@@ -23,9 +24,8 @@ function closeMenu() {
 
 <template>
   <aside v-if="!mobile" class="planner-sidebar d-none d-lg-flex">
-    <RouterLink class="planner-brand" to="/dashboard" aria-label="Student Planner home">
-      <span class="brand-mark"><PlannerIcon name="book" /></span>
-      <span>Student Planner<small>A LITTLE SPACE FOR EVERYTHING</small></span>
+    <RouterLink class="planner-brand" to="/dashboard" aria-label="PocketSemester home">
+      <PocketSemesterBrand compact tagline />
     </RouterLink>
     <p class="nav-caption">YOUR WORKSPACE</p>
     <nav class="nav flex-column gap-2" aria-label="Main navigation">
@@ -45,10 +45,9 @@ function closeMenu() {
   </aside>
   <div v-else class="planner-mobile-nav d-lg-none">
     <div class="planner-mobile-bar d-flex align-items-center justify-content-between gap-2">
-      <RouterLink class="planner-brand" to="/dashboard"
-        ><span class="brand-mark"><PlannerIcon name="book" /></span
-        ><span>Student Planner</span></RouterLink
-      >
+      <RouterLink class="planner-brand" to="/dashboard" aria-label="PocketSemester home">
+        <PocketSemesterBrand compact />
+      </RouterLink>
       <details ref="menu" class="planner-mobile-menu">
         <summary class="btn btn-light d-flex align-items-center gap-2">
           <PlannerIcon name="menu" /><span>Menu</span>
