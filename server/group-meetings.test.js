@@ -17,7 +17,7 @@ const gm = require('./group-meetings')
 const SEED_FILE = path.join(
   __dirname,
   '..',
-  'Student Activity Planner',
+  'PocketSemester',
   'src',
   'data',
   'group-meetings.mock.json',

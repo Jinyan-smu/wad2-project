@@ -5,6 +5,8 @@ import axios from 'axios'
 import PlannerNavigation from '@/components/PlannerNavigation.vue'
 import PlannerCompanion from '@/components/PlannerCompanion.vue'
 import PlannerIcon from '@/components/icons/PlannerIcon.vue'
+import { useActivityEndClock } from '@/composables/useActivityEndClock'
+import { hasActivityEnded } from '@/utils/activityCompletion'
 import {
   buildCalendarEvents,
   calendarDateKey,
@@ -20,7 +22,18 @@ import {
 const route = useRoute()
 const anchor = ref(calendarDateKey())
 const view = ref('month')
-const events = ref([])
+const loadedEvents = ref([])
+const activityEndTimes = computed(() =>
+  loadedEvents.value.filter((event) => event.type === 'activity' && !event.done).map((event) => event.endAt),
+)
+const activityClock = useActivityEndClock(activityEndTimes)
+const events = computed(() =>
+  loadedEvents.value.map((event) => {
+    if (event.type !== 'activity' || event.done) return event
+    if (hasActivityEnded({ end: event.endAt }, activityClock.value)) return { ...event, done: true }
+    return event
+  }),
+)
 const unscheduled = ref(0)
 const classesConnected = ref(false)
 const loading = ref(true)
@@ -180,7 +193,7 @@ async function loadCalendar() {
     })
     if (disposed || current !== request) return
     const result = buildCalendarEvents(data)
-    events.value = result.events
+    loadedEvents.value = result.events
     unscheduled.value = result.unscheduled
     classesConnected.value = Array.isArray(data.classSessions) && data.classSessions.length > 0
     if (selectedKey.value && !events.value.some((event) => event.key === selectedKey.value))

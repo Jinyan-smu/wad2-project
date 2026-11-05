@@ -16,7 +16,7 @@ if (!SESSION_SECRET) {
 // Group Meetings state. Created on first use from the read-only fixture that
 // also documents the shape of the data (see MOCK_DATA_README.md).
 const GROUP_SEED_FILE = path.join(
-  __dirname, '..', 'Student Activity Planner', 'src', 'data', 'group-meetings.mock.json'
+  __dirname, '..', 'PocketSemester', 'src', 'data', 'group-meetings.mock.json'
 )
 const app = express()
 

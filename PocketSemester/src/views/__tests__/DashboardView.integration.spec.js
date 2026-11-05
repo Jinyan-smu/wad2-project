@@ -95,7 +95,6 @@ beforeEach(() => {
     }),
   )
   axios.patch.mockResolvedValue({ data: { done: true } })
-  axios.post.mockResolvedValue({ data: { done: true } })
 })
 afterEach(() => {
   wrapper?.unmount()
@@ -147,18 +146,35 @@ describe('Dashboard', () => {
     expect(wrapper.get('.agenda-row').text()).toContain('Overnight hackathon')
   })
 
-  it('saves activity completion and routes group meetings to their own page', async () => {
+  it('shows saved activity completion as a status and routes group meetings to their own page', async () => {
+    data.activities[0].done = true
     await render()
-    await wrapper.get('input[aria-label="Mark Evening run as complete"]').setValue(true)
-    await flushPromises()
-    expect(axios.post).toHaveBeenCalledWith(
-      'http://localhost:8000/api/activities/run',
-      { done: true },
-      { withCredentials: true },
-    )
+    const activity = wrapper.findAll('.agenda-row').find((row) => row.text().includes('Evening run'))
+    expect(activity.text()).toContain('Completed')
+    expect(activity.find('input[type="checkbox"]').exists()).toBe(false)
     const meeting = wrapper.findAll('.agenda-row').find((row) => row.text().includes('Team sync'))
     expect(meeting.find('input').exists()).toBe(false)
     expect(meeting.text()).toContain('View meeting')
+  })
+
+  it('completes an activity when its end time arrives while the dashboard is open', async () => {
+    Object.assign(data.activities[0], {
+      title: 'Morning study',
+      when: '2026-11-04T08:00:00+08:00',
+      end: '2026-11-04T09:00:02+08:00',
+    })
+    await render()
+    const activityRow = () =>
+      wrapper.findAll('.agenda-row').find((row) => row.text().includes('Morning study'))
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(activityRow().text()).not.toContain('Completed automatically')
+    expect(activityRow().find('input[type="checkbox"]').exists()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(activityRow().text()).toContain('Completed automatically')
+    expect(activityRow().find('input[type="checkbox"]').exists()).toBe(false)
+    expect(axios.post).not.toHaveBeenCalled()
   })
 
   it('shows a save failure without falsely marking an assignment complete', async () => {
@@ -572,7 +588,7 @@ describe('Dashboard interaction feedback', () => {
     expect(JSON.parse(localStorage.getItem(dashboardStorageKey('alex'))).completions).toEqual({})
   })
 
-  it('keeps the newest completion when an earlier undo finishes and supports undoing an activity', async () => {
+  it('keeps the newest coursework completion when an earlier undo finishes', async () => {
     await render()
     await wrapper
       .get('.agenda-panel input[aria-label="Mark Project proposal as complete"]')
@@ -586,26 +602,25 @@ describe('Dashboard interaction feedback', () => {
         }),
     )
     await wrapper.get('.completion-undo').trigger('click')
-    await wrapper.get('input[aria-label="Mark Evening run as complete"]').setValue(true)
+    const quiz = () => wrapper.find('.weekly-coursework-panel input[aria-label="Mark SQL quiz as complete"]')
+    await quiz().setValue(true)
     await flushPromises()
-    expect(wrapper.get('.completion-feedback').text()).toContain('Evening run completed.')
+    expect(wrapper.get('.completion-feedback').text()).toContain('SQL quiz completed.')
     resolveUndo({ data: { done: false } })
     await flushPromises()
-    expect(wrapper.get('.completion-feedback').text()).toContain('Evening run completed.')
+    expect(wrapper.get('.completion-feedback').text()).toContain('SQL quiz completed.')
     expect(
       wrapper.get('.agenda-panel input[aria-label="Mark Project proposal as complete"]').element
         .checked,
     ).toBe(false)
     await wrapper.get('.completion-undo').trigger('click')
     await flushPromises()
-    expect(axios.post).toHaveBeenLastCalledWith(
-      'http://localhost:8000/api/activities/run',
+    expect(axios.patch).toHaveBeenLastCalledWith(
+      'http://localhost:8000/api/coursework/quiz/1/3',
       { done: false },
       { withCredentials: true },
     )
-    expect(wrapper.get('input[aria-label="Mark Evening run as complete"]').element.checked).toBe(
-      false,
-    )
+    expect(quiz().element.checked).toBe(false)
     expect(wrapper.find('.completion-feedback').exists()).toBe(false)
   })
 

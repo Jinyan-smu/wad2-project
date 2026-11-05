@@ -8,7 +8,9 @@ import PlannerCompanion from '@/components/PlannerCompanion.vue'
 import TaskUrgencyBadge from '@/components/TaskUrgencyBadge.vue'
 import DashboardCoursework from '@/components/DashboardCoursework.vue'
 import DashboardWeekSelector from '@/components/DashboardWeekSelector.vue'
+import { useActivityEndClock } from '@/composables/useActivityEndClock'
 import { useDashboardPersonalization } from '@/composables/useDashboardPersonalization'
+import { hasActivityEnded, isActivityComplete } from '@/utils/activityCompletion'
 import { getTaskUrgency } from '@/utils/taskUrgency'
 
 const API_URL = 'http://localhost:8000/api'
@@ -74,6 +76,10 @@ async function reviewConflicts() {
   document.getElementById('conflict-toggle')?.focus()
 }
 const now = ref(new Date())
+useActivityEndClock(
+  computed(() => activities.value.filter(isPersonalActivity).map((item) => item.end)),
+  now,
+)
 const selectedDate = ref(startOfDay(now.value))
 const weekStart = ref(startOfWeek(now.value))
 const filter = toRef(personal.state.preferences, 'filter')
@@ -121,9 +127,18 @@ function dayLabel(date) {
 function isOverdue(item) {
   return !item.done && item.type === 'assignment' && item.when && item.when < now.value
 }
+function isPersonalActivity(item) {
+  return item.type === 'activity' && item.source !== 'group-meeting'
+}
+function activityEnded(item) {
+  return isPersonalActivity(item) && hasActivityEnded(item, now.value)
+}
+function itemComplete(item) {
+  return isPersonalActivity(item) ? isActivityComplete(item, now.value) : item.done
+}
 function itemUrgency(item) {
   return getTaskUrgency(item.type === 'activity' ? item.when : item.dueAt, {
-    done: item.done,
+    done: itemComplete(item),
     now: now.value,
     prefix: item.type === 'activity' ? 'Starts' : 'Due',
     end: item.type === 'activity' ? item.end : null,
@@ -198,35 +213,27 @@ async function toggle(item, event) {
   return saveCompletion(item, !item.done, event)
 }
 async function saveCompletion(item, done, event, offerUndo = true) {
-  if (savingItems.value.includes(item.key) || item.source === 'group-meeting' || disposed)
+  if (savingItems.value.includes(item.key) || item.type === 'activity' || disposed)
     return false
   actionError.value = ''
   const sourceElement = event?.target
   const hadFocus = sourceElement === document.activeElement
   savingItems.value.push(item.key)
   try {
-    if (item.type === 'activity') {
-      await axios.post(
-        API_URL + '/activities/' + encodeURIComponent(item.id),
-        { done },
-        { withCredentials: true },
-      )
-    } else {
-      await axios.patch(
-        API_URL +
-          '/coursework/' +
-          item.type +
-          '/' +
-          encodeURIComponent(item.courseId) +
-          '/' +
-          encodeURIComponent(item.id),
-        { done },
-        { withCredentials: true },
-      )
-    }
+    await axios.patch(
+      API_URL +
+        '/coursework/' +
+        item.type +
+        '/' +
+        encodeURIComponent(item.courseId) +
+        '/' +
+        encodeURIComponent(item.id),
+      { done },
+      { withCredentials: true },
+    )
     if (disposed) return false
     item.done = done
-    if (item.type !== 'activity') personal.recordCompletion(item, done)
+    personal.recordCompletion(item, done)
     if (done) {
       window.clearTimeout(celebrationTimeout)
       celebration.value = { key: item.key, title: item.title }
@@ -387,7 +394,7 @@ const weekDays = computed(() =>
       date,
       key: dateKey(date),
       label: dateText(date, { weekday: 'short' }),
-      count: itemsOnDay(date).filter((item) => !item.done).length,
+      count: itemsOnDay(date).filter((item) => !itemComplete(item)).length,
       deadlines: itemsOnDay(date).filter((item) => !item.done && item.type !== 'activity').length,
       today: dateKey(date) === dateKey(now.value),
     }
@@ -804,7 +811,7 @@ onUnmounted(() => {
                       class="agenda-row d-flex gap-2 gap-sm-3"
                       :class="[
                         {
-                          'is-complete': item.done,
+                          'is-complete': itemComplete(item),
                           'just-completed': item.done && celebration?.key === item.key,
                         },
                         'agenda-urgency-' + (itemUrgency(item)?.level || 'none'),
@@ -829,6 +836,9 @@ onUnmounted(() => {
                           <h3>{{ item.title }}</h3>
                           <p>{{ itemContext(item) }}</p>
                           <TaskUrgencyBadge :urgency="itemUrgency(item)" />
+                          <small v-if="isPersonalActivity(item) && itemComplete(item)" class="text-secondary">
+                            {{ activityEnded(item) && !item.done ? 'Completed automatically' : 'Completed' }}
+                          </small>
                           <RouterLink
                             v-if="item.source === 'group-meeting'"
                             class="text-link small mt-2"
@@ -838,12 +848,10 @@ onUnmounted(() => {
                         </div>
                       </div>
                       <input
-                        v-if="item.source !== 'group-meeting'"
+                        v-if="item.type !== 'activity'"
                         type="checkbox"
                         class="form-check-input mt-2"
-                        :aria-label="
-                          'Mark ' + item.title + ' as ' + (item.done ? 'incomplete' : 'complete')
-                        "
+                        :aria-label="'Mark ' + item.title + ' as ' + (item.done ? 'incomplete' : 'complete')"
                         :checked="item.done"
                         :data-completion-key="item.key"
                         :disabled="savingItems.includes(item.key)"

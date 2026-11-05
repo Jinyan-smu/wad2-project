@@ -255,7 +255,7 @@ watch(() => [props.draftLocation, props.picking], updateDraftMarker, { deep: tru
 
 onMounted(async () => {
   if (!API_KEY) {
-    error.value = 'Add VITE_GOOGLE_MAPS_API_KEY to Student Activity Planner/.env to load Google Maps.'
+    error.value = 'Add VITE_GOOGLE_MAPS_API_KEY to PocketSemester/.env to load Google Maps.'
     return
   }
   try {

@@ -10,7 +10,7 @@ PocketSemester helps students keep track of assignments, activities, and group m
 
 You will need Node.js 24.12 or later, pnpm, and an internet connection.
 
-Unzip the project and keep the `server` and `Student Activity Planner` folders together.
+Unzip the project and keep the `server` and `PocketSemester` folders together.
 
 The `.env` files and database certificate are already in place. The server connects to our existing Supabase database, which has the demo accounts and sample coursework ready to use.
 
@@ -102,7 +102,7 @@ If the map takes a while to load, try opening another page from the navigation m
 
 ### Test scripts
 
-From the `Student Activity Planner` folder, run:
+From the `PocketSemester` folder, run:
 
 ```sh
 pnpm test:unit --run
@@ -119,7 +119,7 @@ pnpm test
 
 These check the group meeting logic and server routes without changing the saved database records.
 
-To run the browser tests, go to `Student Activity Planner` and run:
+To run the browser tests, go to `PocketSemester` and run:
 
 ```sh
 pnpm exec playwright install chromium

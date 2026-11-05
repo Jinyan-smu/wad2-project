@@ -103,6 +103,26 @@ describe('Overall Calendar', () => {
     )
   })
 
+  it('marks a selected activity complete when it ends while the calendar is open', async () => {
+    vi.useRealTimers()
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(new Date('2026-11-05T18:59:59+08:00'))
+    await render('/calendar?event=activity:walk')
+
+    const details = wrapper.get('.calendar-details')
+    expect(details.text()).toContain('Evening walk')
+    expect(details.text()).not.toContain('Completed')
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(details.text()).toContain('Completed')
+    const activity = wrapper.get('button[aria-label^="Evening walk,"]')
+    const meeting = wrapper.get('button[aria-label^="Team sync,"]')
+    expect(activity.attributes('aria-label')).toContain('completed')
+    expect(meeting.attributes('aria-label')).not.toContain('completed')
+    expect(axios.get).toHaveBeenCalledTimes(1)
+  })
+
   it('filters event categories and handles all types turned off', async () => {
     await render()
     await button('Deadlines').trigger('click')

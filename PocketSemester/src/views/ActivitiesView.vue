@@ -6,6 +6,8 @@ import PlannerNavigation from '@/components/PlannerNavigation.vue'
 import PlannerCompanion from '@/components/PlannerCompanion.vue'
 import GoogleActivityMap from '@/components/GoogleActivityMap.vue'
 import TaskUrgencyBadge from '@/components/TaskUrgencyBadge.vue'
+import { useActivityEndClock } from '@/composables/useActivityEndClock'
+import { hasActivityEnded, isActivityComplete } from '@/utils/activityCompletion'
 import { getTaskUrgency } from '@/utils/taskUrgency'
 
 const route = useRoute()
@@ -32,6 +34,7 @@ const presetPlaces = [
 
 
 const activities = ref([])
+const activityClock = useActivityEndClock(computed(() => activities.value.map((item) => item.end)))
 const forecasts = ref({})
 const weatherAlertsOpen = ref(false)
 const loading = ref(true)
@@ -46,6 +49,7 @@ onBeforeUnmount(() => { disposed = true })
 const confirmDeleteId = ref(null)
 const viewMode = ref('map')
 const timeFilter = ref('upcoming')
+watch(timeFilter, () => { activityClock.value = new Date() })
 const activityListQuery = ref('')
 const selectedId = ref(null)
 
@@ -206,11 +210,11 @@ function rateDay(day) {
 
 const VERDICTS = { good: 'Good to go', maybe: 'Bring backup', bad: 'Move indoors' }
 
-function weatherFor(activity) {
+function weatherFor(activity, now) {
 	const na = (verdict, detail = '') => ({ state: 'na', icon: '', verdict, detail })
 
 	if (!activity.outdoor) return na('Indoor')
-	if (new Date(activity.end) < new Date()) return na('Past')
+	if (hasActivityEnded(activity, now)) return na('Past')
 	if (!hasLocation(activity)) return na('No location', 'Add a location to see the weather.')
 
 	const forecast = forecasts.value[forecastKey(activity.lat, activity.lng)]
@@ -253,7 +257,7 @@ function hasLocation(activity) {
 }
 
 const visibleActivities = computed(() => {
-	const now = new Date()
+	const now = activityClock.value
 	const periodStart = new Date(now)
 	periodStart.setHours(0, 0, 0, 0)
 	if (timeFilter.value === 'week') {
@@ -269,7 +273,7 @@ const visibleActivities = computed(() => {
 			if (timeFilter.value === 'today' || timeFilter.value === 'week') {
 				return new Date(item.when) < periodEnd && end > periodStart
 			}
-			const isPast = end < now
+			const isPast = hasActivityEnded(item, now)
 			return timeFilter.value === 'past' ? isPast : !isPast
 		})
 		.sort((first, second) =>
@@ -277,11 +281,15 @@ const visibleActivities = computed(() => {
 				? new Date(second.when) - new Date(first.when)
 				: new Date(first.when) - new Date(second.when),
 		)
-		.map((item) => ({
-			...item,
-			weather: weatherFor(item),
-			urgency: getTaskUrgency(item.when, { done: item.done, now, prefix: 'Starts', end: item.end }),
-		}))
+		.map((item) => {
+			const done = isActivityComplete(item, now)
+			return {
+				...item,
+				done,
+				weather: weatherFor(item, now),
+				urgency: getTaskUrgency(item.when, { done, now, prefix: 'Starts', end: item.end }),
+			}
+		})
 })
 
 const mappableActivities = computed(() => visibleActivities.value.filter(hasLocation))
@@ -303,7 +311,7 @@ async function clearActivitySearch() {
 
 const totalCount = computed(() => activities.value.length)
 const upcomingCount = computed(
-	() => activities.value.filter((item) => new Date(item.end) >= new Date()).length,
+	() => activities.value.filter((item) => !hasActivityEnded(item, activityClock.value)).length,
 )
 const outdoorCount = computed(() => activities.value.filter((item) => item.outdoor).length)
 
@@ -520,15 +528,6 @@ async function saveActivity() {
 		}
 	} finally {
 		if (!disposed) saving.value = false
-	}
-}
-
-async function toggleDone(activity) {
-	try {
-		await updateActivity(activity.id, { done: !activity.done })
-		await loadActivities()
-	} catch (error) {
-		loadError.value = error.message || 'Could not update the activity.'
 	}
 }
 
@@ -831,10 +830,6 @@ onMounted(async () => {
 										:key="activity.id" class="activity-row"
 										:data-urgency="activity.urgency?.level"
 										:class="{ selected: activity.id === selectedId, done: activity.done }">
-										<input type="checkbox" :checked="activity.done"
-											:aria-label="`Mark ${activity.title} as done`"
-											@change="toggleDone(activity)" />
-
 										<button type="button" class="row-main" @click="focusActivity(activity)">
 											<span class="activity-weather-icon" :class="activity.weather.state">
 												{{ glyphFor(activity) }}
@@ -850,7 +845,8 @@ onMounted(async () => {
 											</span>
 										</button>
 
-										<span class="verdict" :class="activity.weather.state">{{
+										<span v-if="activity.done" class="verdict good">Completed</span>
+										<span v-else class="verdict" :class="activity.weather.state">{{
 											activity.weather.verdict }}</span>
 
 										<div class="row-actions">
