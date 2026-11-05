@@ -1147,6 +1147,9 @@ app.post('/api/group-meetings/demo-group/join', requireLogin, async (req, res, n
       if (demoGroup.memberIds.includes(req.session.user.id)) {
         throw new groupMeetings.HttpError(409, 'You already belong to the demo group.', 'already_member')
       }
+      if (demoGroup.memberIds.length >= groupMeetings.MAX_GROUP_MEMBERS) {
+        throw new groupMeetings.HttpError(409, `A group can hold at most ${groupMeetings.MAX_GROUP_MEMBERS} members.`, 'group_full')
+      }
       demoGroup.memberIds.push(req.session.user.id)
       ensureMemberProfile(state, req.session.user.id, req.session.user.username)
       // The button itself is the consent: it says availability will be shared.

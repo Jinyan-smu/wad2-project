@@ -846,6 +846,15 @@ function applyInvitationResponse({ invitation, group, actorId, action, now = Dat
     )
   }
 
+  if (
+    status === 'accepted' &&
+    group &&
+    !group.memberIds.includes(invitation.toUserId) &&
+    group.memberIds.length >= MAX_GROUP_MEMBERS
+  ) {
+    throw new HttpError(409, `A group can hold at most ${MAX_GROUP_MEMBERS} members.`, 'group_full')
+  }
+
   invitation.status = status
   invitation.respondedAt = new Date(now).toISOString()
 
