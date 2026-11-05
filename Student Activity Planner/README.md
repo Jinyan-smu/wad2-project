@@ -1,6 +1,6 @@
-# Student Activity Planner
+# PocketSemester
 
-Student activity planner built with Vue 3 and Vite.
+A student planner for coursework, activities, and group meetings, built with Vue 3 and Vite.
 
 ## Front-end structure
 

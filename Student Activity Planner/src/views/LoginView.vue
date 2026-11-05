@@ -1,6 +1,7 @@
 <script setup>
 import PlannerIcon from '@/components/icons/PlannerIcon.vue'
 import LoginCharacters from '@/components/LoginCharacters.vue'
+import PocketSemesterBrand from '@/components/PocketSemesterBrand.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'
@@ -228,8 +229,7 @@ async function handleSubmit() {
 
     <header class="login-header">
       <div class="login-brand">
-        <span class="login-brand-mark"><PlannerIcon name="book" /></span>
-        <span>Student Planner</span>
+        <PocketSemesterBrand />
       </div>
       <span class="login-header-note">BIG PLANS. LITTLE STEPS.</span>
     </header>
@@ -427,19 +427,6 @@ async function handleSubmit() {
   font-size: 1.04rem;
   font-weight: 700;
   letter-spacing: -0.55px;
-}
-.login-brand-mark {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  background: #ffffffb3;
-  border: 1px solid #e4dced;
-  border-radius: 12px;
-}
-.login-brand-mark .planner-icon {
-  width: 28px;
-  height: 28px;
 }
 .login-header-note {
   color: #8a7b9e;
@@ -984,10 +971,6 @@ async function handleSubmit() {
   }
   .login-brand {
     font-size: 0.96rem;
-  }
-  .login-brand-mark {
-    width: 35px;
-    height: 35px;
   }
   .login-stage {
     padding: 150px 20px 23px;
