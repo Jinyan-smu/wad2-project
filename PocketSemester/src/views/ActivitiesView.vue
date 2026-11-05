@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import PlannerNavigation from '@/components/PlannerNavigation.vue'
@@ -40,6 +40,9 @@ const formError = ref('')
 const successMessage = ref('')
 const showForm = ref(false)
 const editingId = ref(null)
+const saving = ref(false)
+let disposed = false
+onBeforeUnmount(() => { disposed = true })
 const confirmDeleteId = ref(null)
 const viewMode = ref('map')
 const timeFilter = ref('upcoming')
@@ -448,6 +451,7 @@ function startEdit(activity) {
 }
 
 async function saveActivity() {
+	if (saving.value || disposed || !showForm.value) return
 	formError.value = ''
 	successMessage.value = ''
 
@@ -484,16 +488,38 @@ async function saveActivity() {
 		lng: form.value.lng,
 	}
 
+	const submittedForm = form.value
+	const submittedValues = JSON.stringify(submittedForm)
+	const submittedId = editingId.value
+	const wasEditing = submittedId !== null
+	// A late response must not close or attach errors to a replaced or edited draft.
+	const isSubmittedForm = () => !disposed && showForm.value &&
+		form.value === submittedForm && editingId.value === submittedId
+	const isCurrentDraft = () => isSubmittedForm() &&
+		JSON.stringify(form.value) === submittedValues
+	saving.value = true
 	try {
-		const wasEditing = editingId.value !== null
-		if (wasEditing) await updateActivity(editingId.value, payload)
-		else await createActivity(payload)
+		const savedActivity = wasEditing
+			? await updateActivity(submittedId, payload)
+			: await createActivity(payload)
 
+		if (disposed) return
 		await loadActivities()
+		if (!isCurrentDraft()) {
+			// Edits to the same submitted form belong to the created record, not a second create.
+			if (!wasEditing && isSubmittedForm() && savedActivity?.id != null) {
+				editingId.value = savedActivity.id
+			}
+			return
+		}
 		closeForm()
 		successMessage.value = wasEditing ? 'Activity updated.' : 'Activity added.'
 	} catch (error) {
-		formError.value = error.message || 'Could not save the activity. Please try again.'
+		if (isCurrentDraft()) {
+			formError.value = error.message || 'Could not save the activity. Please try again.'
+		}
+	} finally {
+		if (!disposed) saving.value = false
 	}
 }
 
@@ -657,9 +683,9 @@ onMounted(async () => {
 
 							<div class="form-actions col-12 d-flex justify-content-end gap-2">
 								<button type="button" class="btn btn-outline-secondary"
-									@click="closeForm">Cancel</button>
-								<button type="submit" class="btn btn-primary">
-									{{ editingId ? 'Save changes' : 'Add activity' }}
+									:disabled="saving" @click="closeForm">Cancel</button>
+								<button type="submit" class="btn btn-primary" :disabled="saving">
+									{{ saving ? 'Saving...' : editingId ? 'Save changes' : 'Add activity' }}
 								</button>
 							</div>
 						</form>
